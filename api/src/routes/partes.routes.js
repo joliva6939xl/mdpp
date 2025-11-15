@@ -1,28 +1,24 @@
 // Archivo: src/routes/partes.routes.js
 const express = require("express");
 const router = express.Router();
+
 const {
   crearParte,
   listarPartes,
   obtenerParte,
+  actualizarParte,
 } = require("../controllers/partes.controller");
-const { parteFilesUpload } = require("../middlewares/upload.middleware");
-const { fakeAuth } = require("../middlewares/auth.middleware");
 
-// todas las rutas de partes requieren usuario (fakeAuth por ahora)
-router.use(fakeAuth);
+// Crear parte
+router.post("/", crearParte);
 
-// crear parte (texto + fotos/videos opcionales)
-router.post(
-  "/",
-  parteFilesUpload.array("archivos", 10), // hasta 10 archivos
-  crearParte
-);
-
-// listar partes
+// Listar partes (opcionalmente ?usuario_id=)
 router.get("/", listarPartes);
 
-// obtener detalle de parte
+// Detalle de parte
 router.get("/:id", obtenerParte);
+
+// 🔹 NUEVO: actualizar parte (PUT /api/partes/:id)
+router.put("/:id", actualizarParte);
 
 module.exports = router;

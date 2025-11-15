@@ -97,33 +97,72 @@ async function registrarUsuario(req, res, next) {
 // login simple solo por DNI (para futuro)
 async function loginUsuario(req, res, next) {
   try {
-    const { dni } = req.body;
+    const { usuario, dni, contraseña } = req.body;
 
-    if (!dni) {
-      const error = new Error("DNI es obligatorio");
+    // Debe venir usuario o dni
+    if (!usuario && !dni) {
+      const error = new Error("Usuario o DNI es obligatorio");
       error.status = 400;
       throw error;
     }
 
-    const { rows } = await query(
-      "SELECT id, nombre, dni, usuario, cargo, rol FROM usuarios WHERE dni = $1",
-      [dni]
-    );
-
-    if (rows.length === 0) {
-      const error = new Error("Usuario no encontrado");
-      error.status = 404;
+    if (!contraseña) {
+      const error = new Error("La contraseña es obligatoria");
+      error.status = 400;
       throw error;
     }
 
-    const user = rows[0];
+    // Elegimos si buscamos por usuario o por dni
+    const campoLogin = usuario ? "usuario" : "dni";
+    const valorLogin = usuario || dni;
 
+    const sql = `
+      SELECT
+        id,
+        nombre,
+        dni,
+        celular,
+        cargo,
+        usuario,
+        contrasena,
+        foto_ruta,
+        rol,
+        creado_en
+      FROM usuarios
+      WHERE ${campoLogin} = $1
+        AND contrasena = $2
+      LIMIT 1;
+    `;
+
+    const { rows } = await query(sql, [valorLogin, contraseña]);
+
+    if (rows.length === 0) {
+      const error = new Error("Usuario o contraseña incorrectos");
+      error.status = 400;
+      throw error;
+    }
+
+    const u = rows[0];
+
+    // Devolvemos datos reales del usuario
     return res.json({
       ok: true,
-      message: "Login correcto (solo desarrollo, sin token todavía)",
-      data: user,
+      message: "Login correcto",
+      data: {
+        id: u.id,
+        nombre: u.nombre,
+        dni: u.dni,
+        celular: u.celular,
+        cargo: u.cargo,
+        usuario: u.usuario,
+        rol: u.rol,
+        foto_ruta: u.foto_ruta,
+        creado_en: u.creado_en,
+      },
     });
   } catch (err) {
+    console.error("ERROR loginUsuario:", err);
+    if (!err.status) err.status = 500;
     next(err);
   }
 }

@@ -1,100 +1,123 @@
 // Archivo: app/login/index.tsx
+import { useState } from "react";
 import {
   View,
   Text,
   TextInput,
-  StyleSheet,
   Button,
+  StyleSheet,
+  Alert,
   TouchableOpacity,
 } from "react-native";
-import { useEffect, useState } from "react";
 import { useRouter } from "expo-router";
-import { getSession, saveSession } from "../utils/auth";
-import { findUser } from "../utils/userCache";
+import API_URL from "../../config/api";
+import { guardarSesion } from "../utils/session";
 
 export default function LoginScreen() {
   const router = useRouter();
 
   const [usuario, setUsuario] = useState("");
-  const [dni, setDni] = useState("");
-
-  // Si ya hay sesión guardada, entrar directo al perfil
-  useEffect(() => {
-    const checkSession = async () => {
-      const session = await getSession();
-      if (session) {
-        router.replace("/(tabs)/perfil");
-      }
-    };
-    checkSession();
-  }, [router]);
+  const [contraseña, setContraseña] = useState("");
 
   const handleLogin = async () => {
-    const user = findUser(usuario) || findUser(dni);
-
-    if (!user) {
-      alert("Usuario no encontrado (recuerda: cache temporal)");
+    if (!usuario || !contraseña) {
+      Alert.alert("Error", "Completa todos los campos.");
       return;
     }
 
-    await saveSession(user);
+    try {
+      const response = await fetch(`${API_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usuario, contraseña }),
+      });
 
-    router.replace("/(tabs)/perfil");
+      const json = await response.json();
+
+      if (!response.ok || !json.ok) {
+        Alert.alert("Error", json.message || "Credenciales incorrectas");
+        return;
+      }
+
+      // Guardar sesión real
+      await guardarSesion(json.data);
+
+      // Ir a las pestañas → Perfil (o la que quieras)
+      router.replace("/(tabs)/perfil" as any);
+    } catch (error) {
+      console.error("Error en login:", error);
+      Alert.alert("Error", "No se puede conectar con el servidor.");
+    }
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.titulo}>BIENVENIDO A SERENO MDPP 👮‍♂️</Text>
+      <Text style={styles.titulo}>Iniciar Sesión</Text>
 
-      <Text style={styles.label}>USUARIO 💁‍♂️</Text>
+      <Text style={styles.label}>Usuario</Text>
       <TextInput
         style={styles.input}
-        placeholder="INGRESA EL USUARIO"
+        placeholder="Ejemplo: joliva"
         value={usuario}
         onChangeText={setUsuario}
       />
 
-      <Text style={styles.label}>CONTRASEÑA🔒</Text>
+      <Text style={styles.label}>Contraseña</Text>
       <TextInput
         style={styles.input}
-        placeholder="INGRESA TU CONTRASEÑA"
-        value={dni}
-        onChangeText={setDni}
-        keyboardType="numeric"
+        placeholder="Contraseña"
+        secureTextEntry
+        value={contraseña}
+        onChangeText={setContraseña}
       />
 
-      <View style={{ height: 20 }} />
+      <View style={styles.botonContainer}>
+        <Button title="INGRESAR" onPress={handleLogin} />
+      </View>
 
-      <Button title="Iniciar Sesión" onPress={handleLogin} />
-
-      <View style={{ height: 20 }} />
-
-      <TouchableOpacity onPress={() => router.push("/login/register")}>
-        <Text style={styles.link}>¿Eres nuevo? Crea tu usuario aquí</Text>
+      {/* Enlace para crear usuario nuevo */}
+      <TouchableOpacity
+        style={styles.linkContainer}
+        onPress={() => router.push("/login/register" as any)}
+      >
+        <Text style={styles.linkTexto}>
+          ¿Eres nuevo? <Text style={styles.linkTextoResaltado}>Crea tu usuario aquí</Text>
+        </Text>
       </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, justifyContent: "center" },
+  container: { padding: 20, marginTop: 40 },
   titulo: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: "bold",
+    marginBottom: 20,
     textAlign: "center",
-    marginBottom: 30,
   },
-  label: { fontSize: 16, marginBottom: 5 },
+  label: { marginTop: 10, fontWeight: "bold" },
   input: {
     borderWidth: 1,
-    borderColor: "#777",
+    padding: 8,
     borderRadius: 5,
-    padding: 10,
+    marginTop: 5,
+    marginBottom: 10,
+    backgroundColor: "white",
+  },
+  botonContainer: {
+    marginTop: 10,
     marginBottom: 15,
   },
-  link: {
-    color: "blue",
-    textAlign: "center",
-    textDecorationLine: "underline",
+  linkContainer: {
+    alignItems: "center",
+    marginTop: 5,
+  },
+  linkTexto: {
+    fontSize: 14,
+  },
+  linkTextoResaltado: {
+    color: "#007bff",
+    fontWeight: "bold",
   },
 });

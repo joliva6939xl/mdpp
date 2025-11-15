@@ -1,27 +1,36 @@
 // Archivo: app/(tabs)/index.tsx
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
+  ScrollView,
   TextInput,
   StyleSheet,
-  TouchableOpacity,
-  ScrollView,
   Button,
+  Alert,
+  TouchableOpacity,
+  Platform,
 } from "react-native";
-import { useState } from "react";
-import { addParte } from "../utils/parteCache";
+import { Picker } from "@react-native-picker/picker";
+import * as ImagePicker from "expo-image-picker";
+import API_URL from "../../config/api";
+import { obtenerSesion } from "../utils/session";
+
+type UnidadTipo = "OMEGA" | "ALFA" | null;
 
 export default function NuevoParteScreen() {
+  const [usuarioActual, setUsuarioActual] = useState<any | null>(null);
+
   const [sector, setSector] = useState("");
-  const [parteFisico, setParteFisico] = useState("");
+  const [numeroParteFisico, setNumeroParteFisico] = useState("");
   const [zona, setZona] = useState("");
   const [turno, setTurno] = useState("");
   const [lugar, setLugar] = useState("");
   const [fecha, setFecha] = useState("");
   const [hora, setHora] = useState("");
 
-  const [unidadTipo, setUnidadTipo] = useState(""); // OMEGA o ALFA o "SELECCIONAR"
-  const [unidadNumero, setUnidadNumero] = useState(""); // número de unidad
+  const [unidad, setUnidad] = useState<UnidadTipo>(null);
+  const [unidadNumero, setUnidadNumero] = useState<string | null>(null);
 
   const [placa, setPlaca] = useState("");
   const [conductor, setConductor] = useState("");
@@ -34,22 +43,33 @@ export default function NuevoParteScreen() {
   const [supZonal, setSupZonal] = useState("");
   const [supGeneral, setSupGeneral] = useState("");
 
-  const generarListaUnidades = () => {
-    if (unidadTipo === "OMEGA") return [...Array(50)].map((_, i) => `${i + 1}`);
-    if (unidadTipo === "ALFA") return [...Array(80)].map((_, i) => `${i + 1}`);
-    return [];
+  // Almacenamiento local de fotos y videos seleccionados
+  const [fotos, setFotos] = useState<string[]>([]);
+  const [videos, setVideos] = useState<string[]>([]);
+
+  const [enviando, setEnviando] = useState(false);
+
+  // Cargar sesión real
+  useEffect(() => {
+    obtenerSesion().then((data) => {
+      setUsuarioActual(data);
+    });
+  }, []);
+
+  const handleSeleccionarUnidadNumero = (num: number) => {
+    setUnidadNumero(String(num));
   };
 
   const limpiarFormulario = () => {
     setSector("");
-    setParteFisico("");
+    setNumeroParteFisico("");
     setZona("");
     setTurno("");
     setLugar("");
     setFecha("");
     setHora("");
-    setUnidadTipo("");
-    setUnidadNumero("");
+    setUnidad(null);
+    setUnidadNumero(null);
     setPlaca("");
     setConductor("");
     setDniConductor("");
@@ -58,266 +78,405 @@ export default function NuevoParteScreen() {
     setOcurrencia("");
     setSupZonal("");
     setSupGeneral("");
+    setFotos([]);
+    setVideos([]);
   };
 
-  const handleGuardar = () => {
-    const parte = addParte({
-      sector,
-      parteFisico,
-      zona,
-      turno,
-      lugar,
-      fecha,
-      hora,
-      unidadTipo: unidadTipo === "SELECCIONAR" ? "" : unidadTipo,
-      unidadNumero,
-      placa,
-      conductor,
-      dniConductor,
-      sumilla,
-      asunto,
-      ocurrencia,
-      supZonal,
-      supGeneral,
+  // Un solo botón para seleccionar fotos y videos (solo móvil)
+  const handleSeleccionarMedia = async () => {
+    if (Platform.OS === "web") {
+      Alert.alert(
+        "Solo móvil",
+        "Seleccionar foto / video solo estará disponible en la app móvil."
+      );
+      return;
+    }
+
+    const { status } =
+      await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permiso requerido",
+        "Debes permitir el acceso a la galería para seleccionar fotos o videos."
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsMultipleSelection: true,
+      quality: 0.8,
     });
 
-    alert(`Parte virtual #${parte.id} guardado en memoria temporal (desarrollo).`);
+    if (result.canceled) return;
 
-    limpiarFormulario();
+    const assets = result.assets || [];
+
+    const nuevasFotos: string[] = [];
+    const nuevosVideos: string[] = [];
+
+    for (const asset of assets) {
+      if (asset.type === "image") {
+        nuevasFotos.push(asset.uri);
+      } else if (asset.type === "video") {
+        nuevosVideos.push(asset.uri);
+      }
+    }
+
+    if (nuevasFotos.length) {
+      setFotos((prev) => [...prev, ...nuevasFotos]);
+    }
+    if (nuevosVideos.length) {
+      setVideos((prev) => [...prev, ...nuevosVideos]);
+    }
+
+    Alert.alert(
+      "Archivos seleccionados",
+      `Fotos: ${nuevasFotos.length} | Videos: ${nuevosVideos.length}`
+    );
   };
+
+  const handleGuardarParte = async () => {
+    if (!usuarioActual) {
+      Alert.alert(
+        "Sesión",
+        "No se encontró una sesión activa. Inicia sesión nuevamente."
+      );
+      return;
+    }
+
+    try {
+      setEnviando(true);
+
+      const body = {
+        usuario_id: usuarioActual.id,
+        sector,
+        // En el backend se está manejando como parte_fisico
+        parte_fisico: numeroParteFisico || null,
+        zona,
+        turno,
+        lugar,
+        fecha,
+        hora,
+        unidad_tipo: unidad,
+        unidad_numero: unidadNumero,
+        placa: placa || null,
+        conductor: conductor || null,
+        dni_conductor: dniConductor || null,
+        sumilla: sumilla || null,
+        asunto: asunto || null,
+        ocurrencia: ocurrencia || null,
+        sup_zonal: supZonal || null,
+        sup_general: supGeneral || null,
+        // Más adelante enviaremos fotos y videos reales al backend
+        // fotos,
+        // videos,
+      };
+
+      console.log("Enviando parte desde APP:", body);
+
+      const resp = await fetch(`${API_URL}/partes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const json = await resp.json().catch(() => null);
+      console.log("Respuesta crear parte:", resp.status, json);
+
+      if (!resp.ok || !json || json.ok === false) {
+        const msg =
+          (json && json.message) ||
+          `Error ${resp.status}. Revisa la consola del backend.`;
+        Alert.alert("Error al guardar parte", msg);
+        return;
+      }
+
+      Alert.alert("Parte creado", "El parte virtual se guardó correctamente.");
+      limpiarFormulario();
+    } catch (error) {
+      console.error("Error en handleGuardarParte:", error);
+      Alert.alert("Error", "No se pudo conectar con el servidor.");
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  const mediaButtonTitle =
+    fotos.length || videos.length
+      ? `FOTO / VIDEO (${fotos.length} foto(s), ${videos.length} video(s))`
+      : "SELECCIONAR FOTO / VIDEO";
 
   return (
     <ScrollView style={styles.container}>
-      {/* ENCABEZADO */}
-      <Text style={styles.header}>SEGURIDAD CIUDADANA</Text>
-      <Text style={styles.header}>MUNICIPALIDAD DE PUENTE PIEDRA</Text>
+      <Text style={styles.encabezado}>SEGURIDAD CIUDADANA</Text>
+      <Text style={styles.encabezado}>MUNICIPALIDAD DE PUENTE PIEDRA</Text>
 
-      <View style={styles.section}>
-        <Text style={styles.label}>Sector:</Text>
-        <TextInput style={styles.input} value={sector} onChangeText={setSector} />
+      <Text style={styles.titulo}>Nuevo Parte Virtual de Incidencia</Text>
 
-        <Text style={styles.label}>N° de Parte Físico:</Text>
-        <TextInput style={styles.input} value={parteFisico} onChangeText={setParteFisico} />
+      <Text style={styles.label}>Sector:</Text>
+      <TextInput
+        style={styles.input}
+        value={sector}
+        onChangeText={setSector}
+        placeholder="Sector"
+      />
 
-        <Text style={styles.label}>Zona:</Text>
-        <TextInput style={styles.input} value={zona} onChangeText={setZona} />
+      <Text style={styles.label}>N° de Parte Físico:</Text>
+      <TextInput
+        style={styles.input}
+        value={numeroParteFisico}
+        onChangeText={setNumeroParteFisico}
+        placeholder="Ejemplo: 001-2025"
+      />
 
-        <Text style={styles.label}>Turno:</Text>
-        <TextInput style={styles.input} value={turno} onChangeText={setTurno} />
+      <Text style={styles.label}>Zona:</Text>
+      <TextInput
+        style={styles.input}
+        value={zona}
+        onChangeText={setZona}
+        placeholder="Zona"
+      />
 
-        <Text style={styles.label}>Lugar:</Text>
-        <TextInput style={styles.input} value={lugar} onChangeText={setLugar} />
+      <Text style={styles.label}>Turno:</Text>
+      <Picker
+        selectedValue={turno}
+        onValueChange={(value) => setTurno(String(value))}
+        style={styles.input}
+      >
+        <Picker.Item label="Seleccione un turno" value="" />
+        <Picker.Item label="Mañana" value="mañana" />
+        <Picker.Item label="Tarde" value="tarde" />
+        <Picker.Item label="Noche" value="noche" />
+      </Picker>
 
-        <Text style={styles.label}>Fecha:</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="DD/MM/AAAA"
-          value={fecha}
-          onChangeText={setFecha}
-        />
+      <Text style={styles.label}>Lugar:</Text>
+      <TextInput
+        style={styles.input}
+        value={lugar}
+        onChangeText={setLugar}
+        placeholder="Lugar"
+      />
 
-        <Text style={styles.label}>Hora:</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="HH:MM"
-          value={hora}
-          onChangeText={setHora}
-        />
+      <Text style={styles.label}>Fecha:</Text>
+      <TextInput
+        style={styles.input}
+        value={fecha}
+        onChangeText={setFecha}
+        placeholder="YYYY-MM-DD"
+      />
 
-        {/* UNIDAD */}
-        <Text style={styles.label}>Unidad:</Text>
+      <Text style={styles.label}>Hora:</Text>
+      <TextInput
+        style={styles.input}
+        value={hora}
+        onChangeText={setHora}
+        placeholder="HH:MM"
+      />
 
+      {/* Unidad */}
+      <Text style={styles.label}>Unidad:</Text>
+      <View style={styles.unidadRow}>
         <TouchableOpacity
-          style={styles.selectorUnidad}
-          onPress={() => {
-            setUnidadTipo(unidadTipo === "" ? "SELECCIONAR" : "");
-            setUnidadNumero("");
-          }}
+          style={[
+            styles.unidadBtn,
+            unidad === "OMEGA" && styles.unidadBtnActivo,
+          ]}
+          onPress={() => setUnidad("OMEGA")}
         >
-          <Text style={styles.selectorText}>
-            {unidadTipo === "" || unidadTipo === "SELECCIONAR"
-              ? "Seleccionar unidad"
-              : `${unidadTipo} ${unidadNumero}`}
-          </Text>
+          <Text style={styles.unidadTexto}>OMEGA</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.unidadBtn,
+            unidad === "ALFA" && styles.unidadBtnActivo,
+          ]}
+          onPress={() => setUnidad("ALFA")}
+        >
+          <Text style={styles.unidadTexto}>ALFA</Text>
+        </TouchableOpacity>
+      </View>
 
-        {unidadTipo === "SELECCIONAR" && (
-          <View style={styles.unidadOptions}>
-            <TouchableOpacity
-              style={styles.optionUnidad}
-              onPress={() => {
-                setUnidadTipo("OMEGA");
-                setUnidadNumero("");
-              }}
-            >
-              <Text>OMEGA</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.optionUnidad}
-              onPress={() => {
-                setUnidadTipo("ALFA");
-                setUnidadNumero("");
-              }}
-            >
-              <Text>ALFA</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {(unidadTipo === "OMEGA" || unidadTipo === "ALFA") && (
-          <View style={styles.rowWrap}>
-            {generarListaUnidades().map((num) => (
+      {unidad && (
+        <View style={styles.numerosGrid}>
+          {Array.from({
+            length: unidad === "OMEGA" ? 50 : 80,
+          }).map((_, index) => {
+            const num = index + 1;
+            return (
               <TouchableOpacity
                 key={num}
                 style={[
-                  styles.unidadNumero,
-                  unidadNumero === num && styles.unidadSeleccionada,
+                  styles.numeroBtn,
+                  unidadNumero === String(num) && styles.numeroBtnActivo,
                 ]}
-                onPress={() => setUnidadNumero(num)}
+                onPress={() => handleSeleccionarUnidadNumero(num)}
               >
-                <Text style={styles.unidadNumeroTexto}>{num}</Text>
+                <Text>{num}</Text>
               </TouchableOpacity>
-            ))}
-          </View>
-        )}
+            );
+          })}
+        </View>
+      )}
 
-        <Text style={styles.label}>Placa:</Text>
-        <TextInput style={styles.input} value={placa} onChangeText={setPlaca} />
+      <Text style={styles.label}>Placa:</Text>
+      <TextInput
+        style={styles.input}
+        value={placa}
+        onChangeText={setPlaca}
+        placeholder="Placa"
+      />
 
-        <Text style={styles.label}>Conductor:</Text>
-        <TextInput style={styles.input} value={conductor} onChangeText={setConductor} />
+      <Text style={styles.label}>Conductor:</Text>
+      <TextInput
+        style={styles.input}
+        value={conductor}
+        onChangeText={setConductor}
+        placeholder="Nombre del conductor"
+      />
 
-        <Text style={styles.label}>DNI del Conductor:</Text>
-        <TextInput
-          style={styles.input}
-          value={dniConductor}
-          onChangeText={setDniConductor}
-        />
+      <Text style={styles.label}>DNI del Conductor:</Text>
+      <TextInput
+        style={styles.input}
+        value={dniConductor}
+        onChangeText={setDniConductor}
+        placeholder="DNI"
+        keyboardType="numeric"
+      />
 
-        <View style={styles.separator} />
+      <Text style={styles.separador}>────────────────────────────</Text>
 
-        <Text style={styles.label}>Sumilla:</Text>
-        <TextInput style={styles.input} value={sumilla} onChangeText={setSumilla} />
+      <Text style={styles.label}>Sumilla:</Text>
+      <TextInput
+        style={styles.input}
+        value={sumilla}
+        onChangeText={setSumilla}
+        placeholder="Sumilla"
+      />
 
-        <Text style={styles.label}>Asunto:</Text>
-        <TextInput style={styles.input} value={asunto} onChangeText={setAsunto} />
+      <Text style={styles.label}>Asunto:</Text>
+      <TextInput
+        style={styles.input}
+        value={asunto}
+        onChangeText={setAsunto}
+        placeholder="Asunto"
+      />
 
-        <View style={styles.separator} />
+      <Text style={styles.label}>Ocurrencia:</Text>
+      <TextInput
+        style={[styles.input, { height: 120 }]}
+        value={ocurrencia}
+        onChangeText={setOcurrencia}
+        multiline
+        placeholder="Describa la ocurrencia..."
+      />
 
-        <Text style={styles.label}>Ocurrencia:</Text>
-        <TextInput
-          style={styles.textArea}
-          multiline
-          value={ocurrencia}
-          onChangeText={setOcurrencia}
-        />
+      <Text style={styles.separador}>────────────────────────────</Text>
 
-        <View style={styles.separator} />
+      <Text style={styles.label}>Jefe de Operaciones:</Text>
+      <Text style={styles.textoFijo}>MORI TRIGOSO</Text>
 
-        <Text style={styles.label}>JEFE DE OPERACIONES:</Text>
-        <Text style={styles.staticValue}>MORI TRIGOSO</Text>
+      <Text style={styles.label}>Supervisor Zonal:</Text>
+      <TextInput
+        style={styles.input}
+        value={supZonal}
+        onChangeText={setSupZonal}
+        placeholder="Supervisor Zonal"
+      />
 
-        <Text style={styles.label}>Supervisor Zonal:</Text>
-        <TextInput style={styles.input} value={supZonal} onChangeText={setSupZonal} />
+      <Text style={styles.label}>Supervisor General:</Text>
+      <TextInput
+        style={styles.input}
+        value={supGeneral}
+        onChangeText={setSupGeneral}
+        placeholder="Supervisor General"
+      />
 
-        <Text style={styles.label}>Supervisor General:</Text>
-        <TextInput
-          style={styles.input}
-          value={supGeneral}
-          onChangeText={setSupGeneral}
-        />
+      {/* Botón único FOTO/VIDEO */}
+      <View style={{ marginTop: 20 }}>
+        <Button title={mediaButtonTitle} onPress={handleSeleccionarMedia} />
       </View>
 
-      <Button title="Seleccionar Fotos (solo móvil)" disabled />
-      <Button title="Seleccionar Videos (solo móvil)" disabled />
-
-      <View style={{ height: 15 }} />
-
-      <TouchableOpacity style={styles.btnGuardar} onPress={handleGuardar}>
-        <Text style={styles.btnGuardarTexto}>GUARDAR PARTE</Text>
-      </TouchableOpacity>
-
-      <View style={{ height: 40 }} />
+      <View style={{ marginTop: 20, marginBottom: 30 }}>
+        <Button
+          title={enviando ? "GUARDANDO..." : "GUARDAR PARTE"}
+          onPress={handleGuardarParte}
+          disabled={enviando}
+        />
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 15 },
-  header: { fontSize: 18, fontWeight: "bold", textAlign: "center", marginBottom: 2 },
+  container: { flex: 1, padding: 16, backgroundColor: "#f5f5f5" },
+  encabezado: {
+    textAlign: "center",
+    fontWeight: "bold",
+    fontSize: 14,
+  },
+  titulo: {
+    textAlign: "center",
+    fontWeight: "bold",
+    fontSize: 18,
+    marginVertical: 16,
+  },
   label: { marginTop: 10, fontWeight: "bold" },
   input: {
     borderWidth: 1,
-    borderColor: "#777",
-    padding: 8,
-    borderRadius: 5,
-    marginTop: 5,
+    borderColor: "#ccc",
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginTop: 4,
+    backgroundColor: "white",
   },
-  section: { marginBottom: 20 },
-  separator: {
-    height: 2,
-    backgroundColor: "#ccc",
-    marginVertical: 15,
-  },
-  textArea: {
-    borderWidth: 1,
-    height: 100,
-    padding: 8,
-    borderRadius: 5,
-    borderColor: "#777",
-  },
-  selectorUnidad: {
-    borderWidth: 1,
-    borderColor: "#777",
-    padding: 10,
-    borderRadius: 5,
-    marginTop: 5,
-    backgroundColor: "#f3f3f3",
-  },
-  selectorText: { fontSize: 16 },
-  unidadOptions: {
+  unidadRow: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    marginTop: 10,
+    marginTop: 8,
+    gap: 8,
   },
-  optionUnidad: {
+  unidadBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 4,
     borderWidth: 1,
-    borderColor: "#777",
-    padding: 10,
-    borderRadius: 5,
-    width: "45%",
+    borderColor: "#ccc",
     alignItems: "center",
   },
-  rowWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginTop: 10,
+  unidadBtnActivo: {
+    backgroundColor: "#2196F3",
   },
-  unidadNumero: {
-    width: 40,
-    height: 40,
-    margin: 5,
-    borderWidth: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 5,
-  },
-  unidadSeleccionada: {
-    backgroundColor: "#007bff",
-    borderColor: "#0056b3",
-  },
-  unidadNumeroTexto: { color: "black" },
-  staticValue: { fontSize: 16, paddingTop: 4 },
-  btnGuardar: {
-    backgroundColor: "#007bff",
-    padding: 12,
-    borderRadius: 5,
-    marginTop: 15,
-  },
-  btnGuardarTexto: {
+  unidadTexto: {
     color: "white",
     fontWeight: "bold",
+  },
+  numerosGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 8,
+    gap: 4,
+  },
+  numeroBtn: {
+    width: 40,
+    height: 32,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  numeroBtnActivo: {
+    backgroundColor: "#2196F3",
+  },
+  separador: {
+    marginTop: 15,
+    marginBottom: 5,
     textAlign: "center",
+    color: "#999",
+  },
+  textoFijo: {
+    marginTop: 4,
+    fontSize: 16,
   },
 });
