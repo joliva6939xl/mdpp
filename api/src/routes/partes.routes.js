@@ -1,7 +1,8 @@
-// Archivo: src/routes/partes.routes.js
+// Archivo: api/src/routes/partes.routes.js
 const express = require("express");
 const router = express.Router();
 
+// Importamos las funciones que acabamos de definir en el Controlador
 const {
   crearParte,
   listarPartes,
@@ -9,16 +10,12 @@ const {
   actualizarParte,
 } = require("../controllers/partes.controller");
 
-// Crear parte
-router.post("/", crearParte);
+// Definimos las URLs
+router.post("/", crearParte);       // Crear
+router.get("/", listarPartes);      // Listar
+router.get("/:id", obtenerParte);   // Ver detalle
+router.put("/:id", actualizarParte); // Editar
 
-// Listar partes (opcionalmente ?usuario_id=)
-router.get("/", listarPartes);
-
-// Detalle de parte
-router.get("/:id", obtenerParte);
-
-// 🔹 NUEVO: actualizar parte (PUT /api/partes/:id)
-router.put("/:id", actualizarParte);
-
+// ESTA LÍNEA ES LA SOLUCIÓN AL ERROR "got a Object"
+// Exportamos el Router, NO el objeto de funciones
 module.exports = router;

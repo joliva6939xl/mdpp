@@ -151,7 +151,7 @@ export default function NuevoParteScreen() {
       const body = {
         usuario_id: usuarioActual.id,
         sector,
-        // En el backend se está manejando como parte_fisico
+        // La columna en la BD es parte_fisico
         parte_fisico: numeroParteFisico || null,
         zona,
         turno,
