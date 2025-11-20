@@ -8,7 +8,7 @@ import {
   StyleSheet,
   Button,
   Alert,
-  TouchableOpacity,
+  // Se elimina TouchableOpacity, ya no se usa
   Platform,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
@@ -55,10 +55,8 @@ export default function NuevoParteScreen() {
       setUsuarioActual(data);
     });
   }, []);
-
-  const handleSeleccionarUnidadNumero = (num: number) => {
-    setUnidadNumero(String(num));
-  };
+  
+  // Se elimina handleSeleccionarUnidadNumero, ya no se usa
 
   const limpiarFormulario = () => {
     setSector("");
@@ -245,9 +243,8 @@ export default function NuevoParteScreen() {
         style={styles.input}
       >
         <Picker.Item label="Seleccione un turno" value="" />
-        <Picker.Item label="Mañana" value="mañana" />
-        <Picker.Item label="Tarde" value="tarde" />
-        <Picker.Item label="Noche" value="noche" />
+        <Picker.Item label="DIA" value="DIA" />
+        <Picker.Item label="NOCHE" value="NOCHE" />
       </Picker>
 
       <Text style={styles.label}>Lugar:</Text>
@@ -275,48 +272,29 @@ export default function NuevoParteScreen() {
       />
 
       {/* Unidad */}
-      <Text style={styles.label}>Unidad:</Text>
-      <View style={styles.unidadRow}>
-        <TouchableOpacity
-          style={[
-            styles.unidadBtn,
-            unidad === "OMEGA" && styles.unidadBtnActivo,
-          ]}
-          onPress={() => setUnidad("OMEGA")}
-        >
-          <Text style={styles.unidadTexto}>OMEGA</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.unidadBtn,
-            unidad === "ALFA" && styles.unidadBtnActivo,
-          ]}
-          onPress={() => setUnidad("ALFA")}
-        >
-          <Text style={styles.unidadTexto}>ALFA</Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={styles.label}>Tipo de Unidad:</Text>
+      <Picker
+        selectedValue={unidad}
+        onValueChange={(value: UnidadTipo) => setUnidad(value)}
+        style={styles.input}
+      >
+        <Picker.Item label="Seleccione Tipo de Unidad" value={null} />
+        <Picker.Item label="OMEGA" value="OMEGA" />
+        <Picker.Item label="ALFA" value="ALFA" />
+      </Picker>
 
+      {/* Número de Unidad (solo aparece si se ha seleccionado el tipo) */}
       {unidad && (
-        <View style={styles.numerosGrid}>
-          {Array.from({
-            length: unidad === "OMEGA" ? 50 : 80,
-          }).map((_, index) => {
-            const num = index + 1;
-            return (
-              <TouchableOpacity
-                key={num}
-                style={[
-                  styles.numeroBtn,
-                  unidadNumero === String(num) && styles.numeroBtnActivo,
-                ]}
-                onPress={() => handleSeleccionarUnidadNumero(num)}
-              >
-                <Text>{num}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        <>
+          <Text style={styles.label}>Número de Unidad ({unidad}):</Text>
+          <TextInput
+            style={styles.input}
+            value={unidadNumero || ""}
+            onChangeText={setUnidadNumero}
+            placeholder={`Número de ${unidad}`}
+            keyboardType="numeric"
+          />
+        </>
       )}
 
       <Text style={styles.label}>Placa:</Text>
@@ -345,22 +323,58 @@ export default function NuevoParteScreen() {
       />
 
       <Text style={styles.separador}>────────────────────────────</Text>
-
+      
+      {/* SUMILLA (Convertido a Picker) */}
       <Text style={styles.label}>Sumilla:</Text>
-      <TextInput
+      <Picker
+        selectedValue={sumilla}
+        onValueChange={(value) => setSumilla(String(value))}
         style={styles.input}
-        value={sumilla}
-        onChangeText={setSumilla}
-        placeholder="Sumilla"
-      />
+      >
+        <Picker.Item label="Seleccione Sumilla (Incidencia)" value="" />
+        <Picker.Item label="Robo a Transeúnte" value="robo a transeunte" />
+        <Picker.Item label="Consumidores de Sustancias Tóxicas" value="consumidores de sustancias toxicas" />
+        <Picker.Item label="Herido por Arma de Fuego / Arma Blanca" value="herido por arma de fuego /arma blanca" />
+        <Picker.Item label="Choque Vehicular" value="choque vehicular" />
+        <Picker.Item label="Usurpación o Invasión de Terrenos" value="usurpacion o invacion de terrenos" />
+        <Picker.Item label="Robo a Vehículos" value="robo a vehiculos" />
+        <Picker.Item label="Robo a Vivienda" value="robo a vivienda" />
+        <Picker.Item label="Actos Obscenos" value="actos obsenos" />
+        <Picker.Item label="Occiso por Arma de Fuego / Arma Blanca" value="osciso por arma de fuego / arma blanca" />
+        <Picker.Item label="Muerte Natural (Occiso)" value="muerte natural (ocsiso)" />
+        <Picker.Item label="Despiste/Volcadura" value="despiste/volcadura" />
+        <Picker.Item label="Estafa" value="estafa" />
+        <Picker.Item label="Personas o Vehículos Sospechosos" value="personas o vehiculos sospechosos" />
+        <Picker.Item label="Ruidos Molestos" value="ruidos molestos" />
+        <Picker.Item label="Mordedura de Can" value="mordedura de can" />
+        <Picker.Item label="Alteración al Orden Público" value="alteracion al orden publico" />
+        <Picker.Item label="Persona Extraviada" value="persona extraviada" />
+        <Picker.Item label="Disuasión de Meretrices" value="disuacion de meretrices" />
+        <Picker.Item label="Quema de Maleza/Arrojo de Basura" value="quema de maleza/arrojo de basura" />
+        <Picker.Item label="Aniego" value="aniego" />
+        <Picker.Item label="Retención de Delincuentes" value="retencion de delincuentes" />
+        <Picker.Item label="Violencia Familiar o Sexual" value="violencia familiar o sexual" />
+        <Picker.Item label="Consumidores de Alcohol" value="consumidores de alcohol" />
+        <Picker.Item label="Incendio" value="incendio" />
+        <Picker.Item label="Atropello/Caída de Pasajero" value="atropello/caida de pasajero" />
+        <Picker.Item label="Atención Paramédica" value="atencion paramedica" />
+        <Picker.Item label="Otros" value="otros" />
+      </Picker>
 
-      <Text style={styles.label}>Asunto:</Text>
-      <TextInput
+      {/* ASUNTO (Cambiado a Origen de la Atención y convertido a Picker) */}
+      <Text style={styles.label}>Origen de la atención:</Text>
+      <Picker
+        selectedValue={asunto}
+        onValueChange={(value) => setAsunto(String(value))}
         style={styles.input}
-        value={asunto}
-        onChangeText={setAsunto}
-        placeholder="Asunto"
-      />
+      >
+        <Picker.Item label="Seleccione Origen de la Atención" value="" />
+        <Picker.Item label="Patrullaje" value="patrullaje" />
+        <Picker.Item label="Alerta Radial" value="alerta radial" />
+        <Picker.Item label="Central de Cámaras" value="central de camaras" />
+        <Picker.Item label="Operativo" value="operativo" />
+        <Picker.Item label="Llamada PNP" value="llamada pnp" />
+      </Picker>
 
       <Text style={styles.label}>Ocurrencia:</Text>
       <TextInput
@@ -431,44 +445,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     backgroundColor: "white",
   },
-  unidadRow: {
-    flexDirection: "row",
-    marginTop: 8,
-    gap: 8,
-  },
-  unidadBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    alignItems: "center",
-  },
-  unidadBtnActivo: {
-    backgroundColor: "#2196F3",
-  },
-  unidadTexto: {
-    color: "white",
-    fontWeight: "bold",
-  },
-  numerosGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginTop: 8,
-    gap: 4,
-  },
-  numeroBtn: {
-    width: 40,
-    height: 32,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 4,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  numeroBtnActivo: {
-    backgroundColor: "#2196F3",
-  },
+  // Se han eliminado los estilos de Unidad para evitar advertencias.
   separador: {
     marginTop: 15,
     marginBottom: 5,
