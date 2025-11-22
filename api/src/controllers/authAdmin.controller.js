@@ -51,30 +51,18 @@ const loginAdmin = async (req, res) => {
     }
 };
 
-// 3. LISTAR USUARIOS DE LA APP (ESTRATEGIA 'SELECT *')
+// 3. LISTAR USUARIOS APP (Ahora traemos estado y motivo)
 const listarUsuariosApp = async (req, res) => {
-    console.log("--> PETICIÓN: Listar Usuarios App");
     try {
-        // ESTRATEGIA MAESTRA: Usamos '*' para traer TODO lo que exista.
-        // Esto evita el error "no existe la columna X".
         const result = await pool.query('SELECT * FROM usuarios ORDER BY id DESC');
-        
-        console.log(`--> ÉXITO: ${result.rows.length} usuarios encontrados.`);
-        
-        // CÓDIGO ESPÍA: Imprime en la terminal qué columnas existen realmente
-        if (result.rows.length > 0) {
-            console.log("🔎 COLUMNAS REALES EN TU BASE DE DATOS:", Object.keys(result.rows[0]));
-            console.log("👤 DATOS DEL PRIMER USUARIO:", result.rows[0]);
-        }
-
         res.json({ ok: true, usuarios: result.rows });
     } catch (error) {
-        console.error("❌ ERROR BD:", error.message);
+        console.error("ERROR BD:", error.message);
         res.status(500).json({ ok: false, message: 'Error backend: ' + error.message });
     }
 };
 
-// 4. LISTAR USUARIOS CREADOS POR ADMIN
+// 4. LISTAR USUARIOS ADMIN
 const listarUsuariosAdmin = async (req, res) => {
     try {
         const result = await pool.query('SELECT id, nombre_usuario, rol, creado_en FROM gerencia_usuarios ORDER BY id DESC');
@@ -85,9 +73,98 @@ const listarUsuariosAdmin = async (req, res) => {
     }
 };
 
+// 5. BORRAR USUARIOS
+const deleteUsuarios = async (req, res) => {
+    try {
+        const { users } = req.body; 
+        if (!users || !Array.isArray(users) || users.length === 0) return res.status(400).json({ ok: false, message: 'No se seleccionaron usuarios.' });
+
+        const idsApp = users.filter(u => u.tipo === 'APP').map(u => u.id);
+        const idsAdmin = users.filter(u => u.tipo === 'ADMIN').map(u => u.id);
+
+        let totalDeleted = 0;
+        if (idsApp.length > 0) {
+            const resultApp = await pool.query('DELETE FROM usuarios WHERE id = ANY($1::int[])', [idsApp]);
+            totalDeleted += resultApp.rowCount;
+        }
+        if (idsAdmin.length > 0) {
+            const resultAdmin = await pool.query('DELETE FROM gerencia_usuarios WHERE id = ANY($1::int[])', [idsAdmin]);
+            totalDeleted += resultAdmin.rowCount;
+        }
+        res.json({ ok: true, deletedCount: totalDeleted, message: 'Usuarios eliminados correctamente.' });
+    } catch (error) {
+        console.error('Error deleteUsuarios:', error);
+        res.status(500).json({ ok: false, message: error.message });
+    }
+};
+
+// 6. DETALLES USUARIO
+const getUsuarioDetails = async (req, res) => {
+    try {
+        const { id } = req.params;
+        // Ahora traemos también estado y bloqueo_motivo
+        let result = await pool.query('SELECT id, nombre, dni, celular, cargo, usuario, foto_ruta, rol, creado_en, estado, bloqueo_motivo FROM usuarios WHERE id = $1', [id]);
+        
+        if (result.rows.length === 0) {
+            result = await pool.query('SELECT id, nombre_usuario AS nombre, rol, creado_en, estado, bloqueo_motivo FROM gerencia_usuarios WHERE id = $1', [id]);
+        }
+        
+        if (result.rows.length === 0) return res.status(404).json({ ok: false, message: 'Usuario no encontrado.' });
+
+        res.json({ ok: true, user: result.rows[0] });
+    } catch (error) {
+        console.error('Error getUsuarioDetails:', error);
+        res.status(500).json({ ok: false, message: 'Error al obtener detalles.' });
+    }
+};
+
+// 7. PARTES VIRTUALES
+const getUsuarioPartes = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query('SELECT * FROM partes_virtuales WHERE usuario_id = $1 ORDER BY id DESC', [id]);
+        res.json({ ok: true, partes: result.rows });
+    } catch (error) {
+        console.error('Error getUsuarioPartes:', error.message);
+        res.status(500).json({ ok: false, message: 'Error SQL: ' + error.message });
+    }
+};
+
+// 8. 🆕 BLOQUEAR / DESBLOQUEAR USUARIO
+const toggleBloqueoUsuario = async (req, res) => {
+    try {
+        const { users, accion, motivo } = req.body; 
+        // users: [{id: 1, tipo: 'APP'}], accion: 'BLOQUEAR' | 'DESBLOQUEAR', motivo: string
+
+        if (!users || users.length === 0) return res.status(400).json({ ok: false, message: 'Sin usuarios seleccionados.' });
+
+        const nuevoEstado = accion === 'BLOQUEAR' ? 'BLOQUEADO' : 'ACTIVO';
+        const nuevoMotivo = accion === 'BLOQUEAR' ? motivo : null; // Si desbloquea, borra motivo
+
+        const idsApp = users.filter(u => u.tipo === 'APP').map(u => u.id);
+        
+        if (idsApp.length > 0) {
+            await pool.query(
+                'UPDATE usuarios SET estado = $1, bloqueo_motivo = $2 WHERE id = ANY($3::int[])',
+                [nuevoEstado, nuevoMotivo, idsApp]
+            );
+        }
+        
+        res.json({ ok: true, message: `Usuarios ${nuevoEstado === 'ACTIVO' ? 'desbloqueados' : 'bloqueados'} correctamente.` });
+
+    } catch (error) {
+        console.error('Error toggleBloqueo:', error);
+        res.status(500).json({ ok: false, message: error.message });
+    }
+}
+
 module.exports = {
     registrarAdmin,
     loginAdmin,
     listarUsuariosApp,
-    listarUsuariosAdmin
+    listarUsuariosAdmin,
+    deleteUsuarios,
+    getUsuarioDetails,
+    getUsuarioPartes,
+    toggleBloqueoUsuario // <--- ¡Exportada!
 };

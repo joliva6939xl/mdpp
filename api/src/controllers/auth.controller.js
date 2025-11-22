@@ -1,173 +1,108 @@
-// Archivo: src/controllers/auth.controller.js
-const path = require("path");
-const { query } = require("../config/db");
+// Archivo: mdpp/api/src/controllers/auth.controller.js
+const pool = require('../config/db');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
-// misma lógica que en el móvil para generar usuario
-function generarUsuario(nombreCompleto) {
-  if (!nombreCompleto || !nombreCompleto.trim()) return "";
+const JWT_SECRET = process.env.JWT_SECRET || 'secreto_super_seguro';
 
-  const partes = nombreCompleto.trim().toLowerCase().split(" ");
-  const nombrePrimero = partes[0];
-  const apellido = partes[1] || "";
+// 1. REGISTRO (App Móvil)
+const registrarUsuario = async (req, res) => {
+    try {
+        const { nombre, dni, celular, cargo, usuario, contrasena, password, foto_ruta } = req.body;
+        
+        // ⚠️ Corregimos: Soportamos contrasena, password, O la variante con Ñ
+        const passInput = contrasena || password || req.body['contraseña'];
 
-  if (!apellido) {
-    return nombrePrimero;
-  }
+        if (!nombre || !dni || !usuario || !passInput) {
+            return res.status(400).json({ ok: false, message: 'Faltan datos obligatorios.' });
+        }
 
-  const usuario = nombrePrimero[0] + apellido;
-  return usuario.replace(/[^a-z0-9]/g, "");
-}
+        const salt = await bcrypt.genSalt(10);
+        const hash = await bcrypt.hash(passInput, salt);
 
-async function registrarUsuario(req, res, next) {
-  try {
-    const { nombre, dni, celular, cargo } = req.body;
-    const foto = req.file; // foto del usuario
+        const result = await pool.query(
+            `INSERT INTO usuarios (nombre, dni, celular, cargo, usuario, contrasena, foto_ruta, estado) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVO') RETURNING id`,
+            [nombre, dni, celular, cargo, usuario, hash, foto_ruta]
+        );
 
-    if (!nombre || !dni || !cargo) {
-      const error = new Error("Nombre, DNI y cargo son obligatorios");
-      error.status = 400;
-      throw error;
+        res.status(201).json({
+            ok: true,
+            message: 'Usuario registrado correctamente.',
+            userId: result.rows[0].id
+        });
+
+    } catch (error) {
+        console.error("ERROR registrarUsuario:", error);
+        if (error.code === '23505') { 
+            return res.status(400).json({ ok: false, message: 'El DNI o Usuario ya existe.' });
+        }
+        res.status(500).json({ ok: false, message: 'Error en el servidor.' });
     }
+};
 
-    const usuario = generarUsuario(nombre);
-    const contraseña = dni; // contraseña lógica = DNI
+// 2. LOGIN (App Móvil y Web General)
+const loginUsuario = async (req, res) => {
+    try {
+        // 💡 Log de Depuración
+        console.log("LOGIN INTENTO. Body recibido:", req.body); 
+        
+        // ⚠️ CORRECCIÓN CLAVE: Accedemos directamente a req.body['contraseña'] para capturar la Ñ
+        const { usuario, contrasena, password } = req.body;
 
-    let fotoRuta = null;
-    if (foto) {
-      fotoRuta = path.join("users", path.basename(foto.path));
+        // PRIORIDAD: 1. Contraseña con Ñ; 2. Contrasena sin Ñ; 3. Password
+        const passwordLogin = req.body['contraseña'] || contrasena || password;
+
+        if (!usuario || String(usuario).trim() === '' || !passwordLogin || String(passwordLogin).trim() === '') {
+            return res.status(400).json({ ok: false, message: 'Usuario y contraseña son obligatorios.' });
+        }
+
+        const result = await pool.query('SELECT * FROM usuarios WHERE usuario = $1', [usuario]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ ok: false, message: 'Usuario no encontrado.' });
+        }
+
+        const user = result.rows[0];
+
+        // LÓGICA DE BLOQUEO
+        if (user.estado === 'BLOQUEADO') {
+            return res.status(403).json({ 
+                ok: false, 
+                message: `⛔ USUARIO BLOQUEADO. Motivo: ${user.bloqueo_motivo || 'Contacte al administrador.'}` 
+            });
+        }
+
+        // 🔐 COMPARACIÓN SEGURA
+        const esValido = await bcrypt.compare(passwordLogin, user.contrasena);
+
+        if (!esValido) {
+            return res.status(401).json({ ok: false, message: 'Contraseña incorrecta.' });
+        }
+
+        // Generar Token
+        const token = jwt.sign({ id: user.id, rol: user.rol }, JWT_SECRET, { expiresIn: '7d' });
+
+        res.json({
+            ok: true,
+            message: 'Login exitoso',
+            token,
+            usuario: {
+                id: user.id,
+                nombre: user.nombre,
+                cargo: user.cargo,
+                foto: user.foto_ruta,
+                estado: user.estado
+            }
+        });
+
+    } catch (error) {
+        console.error("Error en Login:", error);
+        res.status(500).json({ ok: false, message: 'Error interno al iniciar sesión.' });
     }
-
-    const insertQuery = `
-      INSERT INTO usuarios (
-        nombre,
-        dni,
-        celular,
-        cargo,
-        usuario,
-        contrasena,
-        foto_ruta,
-        rol
-      )
-      VALUES (
-        $1, $2, $3, $4, $5, $6, $7, 'agente'
-      )
-      RETURNING
-        id,
-        nombre,
-        dni,
-        celular,
-        cargo,
-        usuario,
-        foto_ruta,
-        rol,
-        creado_en;
-    `;
-
-    const values = [
-      nombre,
-      dni,
-      celular || null,
-      cargo,
-      usuario,
-      contraseña,
-      fotoRuta,
-    ];
-
-    const { rows } = await query(insertQuery, values);
-    const nuevoUsuario = rows[0];
-
-    return res.status(201).json({
-      ok: true,
-      message: "Usuario registrado correctamente",
-      data: {
-        ...nuevoUsuario,
-        // devolvemos la contraseña solo para desarrollo
-        contraseña,
-      },
-    });
-  } catch (err) {
-    if (err.code === "23505") {
-      err.message = "El DNI o usuario ya está registrado";
-      err.status = 400;
-    }
-    next(err);
-  }
-}
-
-// login simple solo por DNI (para futuro)
-async function loginUsuario(req, res, next) {
-  try {
-    const { usuario, dni, contraseña } = req.body;
-
-    // Debe venir usuario o dni
-    if (!usuario && !dni) {
-      const error = new Error("Usuario o DNI es obligatorio");
-      error.status = 400;
-      throw error;
-    }
-
-    if (!contraseña) {
-      const error = new Error("La contraseña es obligatoria");
-      error.status = 400;
-      throw error;
-    }
-
-    // Elegimos si buscamos por usuario o por dni
-    const campoLogin = usuario ? "usuario" : "dni";
-    const valorLogin = usuario || dni;
-
-    const sql = `
-      SELECT
-        id,
-        nombre,
-        dni,
-        celular,
-        cargo,
-        usuario,
-        contrasena,
-        foto_ruta,
-        rol,
-        creado_en
-      FROM usuarios
-      WHERE ${campoLogin} = $1
-        AND contrasena = $2
-      LIMIT 1;
-    `;
-
-    const { rows } = await query(sql, [valorLogin, contraseña]);
-
-    if (rows.length === 0) {
-      const error = new Error("Usuario o contraseña incorrectos");
-      error.status = 400;
-      throw error;
-    }
-
-    const u = rows[0];
-
-    // Devolvemos datos reales del usuario
-    return res.json({
-      ok: true,
-      message: "Login correcto",
-      data: {
-        id: u.id,
-        nombre: u.nombre,
-        dni: u.dni,
-        celular: u.celular,
-        cargo: u.cargo,
-        usuario: u.usuario,
-        rol: u.rol,
-        foto_ruta: u.foto_ruta,
-        creado_en: u.creado_en,
-      },
-    });
-  } catch (err) {
-    console.error("ERROR loginUsuario:", err);
-    if (!err.status) err.status = 500;
-    next(err);
-  }
-}
+};
 
 module.exports = {
-  registrarUsuario,
-  loginUsuario,
+    registrarUsuario,
+    loginUsuario
 };
