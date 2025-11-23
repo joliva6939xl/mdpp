@@ -3,7 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
 const path = require("path");
-
+const usuariosRoutes = require("./routes/usuarios.routes");
 // --- IMPORTACIÓN DE RUTAS ---
 const authRoutes = require("./routes/auth.routes");           // 1. Auth (Login App)
 const authAdminRoutes = require("./routes/authAdmin.routes"); // 2. Admin (Dashboard Web)
@@ -28,7 +28,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 // Carpeta pública para fotos
-app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // --- USO DE RUTAS ---
 
@@ -50,5 +50,5 @@ app.use((err, req, res, next) => {
         message: err.message || "Error interno del servidor"
     });
 });
-
+app.use("/api/usuarios", usuariosRoutes);
 module.exports = app;

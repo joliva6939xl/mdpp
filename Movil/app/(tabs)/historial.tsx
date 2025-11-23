@@ -1,182 +1,105 @@
-// Archivo: app/(tabs)/historial.tsx
-import { useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  Alert,
-} from "react-native";
-import { useRouter } from "expo-router";
-import API_URL from "../../config/api";
-import { obtenerSesion } from "../utils/session";
+import React, { useState, useCallback } from 'react';
+import { StyleSheet, FlatList, ActivityIndicator, View, Platform } from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { obtenerSesion } from '../utils/session';
+// ⚠️ CORRECCIÓN: Nombres de archivo en minúsculas para coincidir con tu proyecto real
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
 
-type ParteResumen = {
-  id: number;
-  sector: string | null;
-  parte_fisico: string | null;
-  fecha: string | null;
-  hora: string | null;
-  sumilla: string | null;
-  // AÑADIDO: Campo necesario para verificar la edición
-  creado_en: string; 
-};
+const API_URL = Platform.OS === 'web' 
+    ? 'http://localhost:4000/api' 
+    : 'http://10.0.2.2:4000/api';
 
 export default function HistorialScreen() {
-  const router = useRouter();
-  const [partes, setPartes] = useState<ParteResumen[]>([]);
-  const [cargando, setCargando] = useState(true);
+    const [partes, setPartes] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const router = useRouter();
 
-  useEffect(() => {
-    async function cargar() {
-      try {
-        const u = await obtenerSesion();
-        if (!u) {
-          setCargando(false);
-          Alert.alert("Sesión", "Debes iniciar sesión nuevamente.");
-          router.replace("/login" as any);
-          return;
+    const cargarHistorial = async () => {
+        try {
+            setLoading(true);
+            const { usuario, token } = await obtenerSesion();
+
+            if (!usuario || !usuario.id) {
+                console.log("No hay usuario logueado o falta ID");
+                return; 
+            }
+
+            console.log(`📡 Solicitando historial para ID: ${usuario.id}`);
+
+            const response = await fetch(`${API_URL}/partes?usuario_id=${usuario.id}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                setPartes(data.partes || []);
+            } else {
+                console.error("Error API:", data.message);
+            }
+        } catch (error) {
+            console.error("Error historial:", error);
+        } finally {
+            setLoading(false);
         }
+    };
 
-        const resp = await fetch(`${API_URL}/partes?usuario_id=${u.id}`);
-        const json = await resp.json();
+    useFocusEffect(
+        useCallback(() => {
+            cargarHistorial();
+        }, [])
+    );
 
-        if (!resp.ok || !json.ok) {
-          Alert.alert(
-            "Error",
-            json.message || "No se pudieron cargar los partes."
-          );
-          setCargando(false);
-          return;
-        }
-
-        // Asume que la API devuelve 'creado_en' en formato de fecha ISO 
-        setPartes(json.data || []); 
-      } catch (error) {
-        console.error("Error cargando historial:", error);
-        Alert.alert("Error", "No se pudo conectar con el servidor.");
-      } finally {
-        setCargando(false);
-      }
-    }
-
-    cargar();
-  }, [router]);
-  
-  // Lógica para determinar si el parte puede ser editado (menos de 10 minutos)
-  const canEdit = (parte: ParteResumen): boolean => {
-    // Si no hay fecha de creación (debería haberla), no se puede editar.
-    if (!parte.creado_en) return false;
-    
-    // 10 minutos en milisegundos
-    const tenMinutesInMs = 10 * 60 * 1000; 
-
-    // Convertir la fecha de creación a milisegundos
-    const creationTime = new Date(parte.creado_en).getTime();
-    const now = Date.now();
-
-    // Si el tiempo transcurrido (now - creationTime) es menor a 10 minutos, se puede editar.
-    return (now - creationTime) < tenMinutesInMs;
-  };
-
-  const renderItem = ({ item }: { item: ParteResumen }) => {
-    const editable = canEdit(item);
+    const renderItem = ({ item }: { item: any }) => (
+        <ThemedView style={styles.card}>
+            <View style={styles.cardHeader}>
+                <ThemedText type="defaultSemiBold">Parte #{item.id}</ThemedText>
+                <ThemedText style={styles.date}>{item.fecha} {item.hora}</ThemedText>
+            </View>
+            <ThemedText style={styles.sumilla}>{item.sumilla || 'Sin Asunto'}</ThemedText>
+            <ThemedText style={styles.location}>📍 {item.lugar || 'Ubicación no registrada'}</ThemedText>
+            <ThemedText style={styles.status} onPress={() => router.push(`/parte/${item.id}`)}>
+                Ver Detalles ➡
+            </ThemedText>
+        </ThemedView>
+    );
 
     return (
-      // El componente card ahora es un View para manejar el layout de Fila
-      <View style={styles.card}> 
-        <TouchableOpacity
-          style={styles.cardContent}
-          onPress={() => router.push(`/parte/${item.id}` as any)}
-        >
-          <Text style={styles.cardTitulo}>
-            Parte #{item.id} {item.parte_fisico ? `- ${item.parte_fisico}` : ""}
-          </Text>
-          <Text style={styles.cardSub}>
-            {item.fecha || ""} {item.hora || ""}
-          </Text>
-          <Text style={styles.cardSub}>Sector: {item.sector || "-"}</Text>
-          <Text style={styles.cardSumilla} numberOfLines={2}>
-            {item.sumilla || "(Sin sumilla)"}
-          </Text>
-        </TouchableOpacity>
-        
-        {/* BOTÓN EDITAR CONDICIONAL */}
-        {editable && (
-          <TouchableOpacity
-            style={styles.editButton}
-            onPress={() => router.push(`/parte/editar/${item.id}` as any)}
-          >
-            <Text style={styles.editButtonText}>EDITAR</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+        <ThemedView style={styles.container}>
+            <ThemedText type="title" style={styles.title}>Mis Partes</ThemedText>
+            
+            {loading ? (
+                <ActivityIndicator size="large" color="#0056b3" style={{marginTop: 50}} />
+            ) : (
+                <FlatList
+                    data={partes}
+                    keyExtractor={(item) => item.id.toString()}
+                    renderItem={renderItem}
+                    ListEmptyComponent={<ThemedText style={styles.empty}>No hay partes registrados.</ThemedText>}
+                    contentContainerStyle={{ paddingBottom: 20 }}
+                />
+            )}
+        </ThemedView>
     );
-  };
-
-  if (cargando) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
-        <Text>Cargando historial...</Text>
-      </View>
-    );
-  }
-
-  if (!partes.length) {
-    return (
-      <View style={styles.center}>
-        <Text>No hay partes registrados para este usuario.</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.container}>
-      <FlatList
-        data={partes}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={renderItem}
-      />
-    </View>
-  );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  card: { // MODIFICADO: Contenedor principal para la fila
-    borderWidth: 1,
-    borderRadius: 6,
-    padding: 10,
-    marginBottom: 10,
-    backgroundColor: "white",
-    flexDirection: 'row', // Para alinear contenido y botón en la misma fila
-    justifyContent: 'space-between', // Para separar el contenido del botón
-    alignItems: 'center', // Para centrar verticalmente
-  },
-  cardContent: { // AÑADIDO: Contenedor para el texto
-    flex: 1, 
-  },
-  cardTitulo: { fontSize: 16, fontWeight: "bold" },
-  cardSub: { fontSize: 14, color: "#555" },
-  cardSumilla: { marginTop: 5, fontSize: 14 },
-  editButton: { // AÑADIDO: Estilo del botón de edición
-    marginLeft: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#007AFF',
-    borderRadius: 4,
-  },
-  editButtonText: { // AÑADIDO: Estilo del texto del botón
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 12,
-  },
+    container: { flex: 1, padding: 20 },
+    title: { marginBottom: 20, textAlign: 'center' },
+    empty: { textAlign: 'center', marginTop: 50, color: '#999' },
+    card: {
+        backgroundColor: '#fff',
+        padding: 15,
+        borderRadius: 10,
+        marginBottom: 15,
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+    },
+    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
+    date: { fontSize: 12, color: '#666' },
+    sumilla: { fontSize: 16, fontWeight: 'bold', marginBottom: 5 },
+    location: { fontSize: 14, color: '#444', marginBottom: 10 },
+    status: { color: '#0056b3', fontWeight: 'bold', textAlign: 'right' }
 });

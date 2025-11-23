@@ -1,252 +1,158 @@
-// Archivo: app/(tabs)/perfil.tsx
-import React, { useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Image,
-  TouchableOpacity,
-  Alert,
-} from "react-native";
-import { useRouter } from "expo-router";
-import * as ImagePicker from "expo-image-picker";
-import API_URL from "../../config/api";
-import { obtenerSesion, cerrarSesion } from "../utils/session";
+import React, { useState, useCallback } from 'react';
+import { StyleSheet, View, Text, ActivityIndicator, TouchableOpacity, Alert, Image, Platform } from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import { obtenerSesion, cerrarSesion } from '../utils/session';
+import ParallaxScrollView from '@/components/parallax-scroll-view';
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 
-type Usuario = {
-  id: number;
-  nombre: string;
-  dni: string;
-  celular: string;
-  cargo: string;
-  usuario: string;
-  foto_ruta?: string | null;
-};
+const API_URL = Platform.OS === 'web' ? 'http://localhost:4000/api' : 'http://10.0.2.2:4000/api';
 
 export default function PerfilScreen() {
-  const router = useRouter();
-  const [usuario, setUsuario] = useState<Usuario | null>(null);
-  const [subiendo, setSubiendo] = useState(false);
+    const router = useRouter();
+    const [user, setUser] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [uploading, setUploading] = useState(false);
 
-  // BASE del servidor sin /api (para las fotos estáticas)
-  const API_BASE = API_URL.replace(/\/api\/?$/, "");
+    useFocusEffect(
+        useCallback(() => {
+            let isActive = true;
+            const cargar = async () => {
+                const session = await obtenerSesion();
+                if (isActive) {
+                    if (session && session.usuario) {
+                        setUser(session.usuario);
+                    }
+                    setLoading(false);
+                }
+            };
+            cargar();
+            return () => { isActive = false; };
+        }, [])
+    );
 
-  // Cargar datos reales de sesión
-  useEffect(() => {
-    const cargar = async () => {
-      const ses = await obtenerSesion();
-      if (!ses) {
-        router.replace("/login");
-        return;
-      }
-      setUsuario(ses);
+    const pickImage = async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') return Alert.alert('Permiso', 'Se requiere acceso a la galería.');
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.7,
+        });
+
+        if (!result.canceled) {
+            subirFoto(result.assets[0].uri);
+        }
     };
 
-    cargar();
-  }, [router]);
+    const subirFoto = async (uri: string) => {
+        if (!user || !user.id) return;
+        setUploading(true);
+        try {
+            const formData = new FormData();
+            const filename = uri.split('/').pop();
+            const match = /\.(\w+)$/.exec(filename || '');
+            const type = match ? `image/${match[1]}` : `image/jpeg`;
 
-  const handleCerrarSesion = async () => {
-    await cerrarSesion();
-    Alert.alert("Sesión cerrada", "Vuelve a iniciar sesión.");
-    router.replace("/login");
-  };
+            // @ts-ignore
+            formData.append('foto', { uri, name: filename, type });
 
-  const cambiarFoto = async () => {
-    if (!usuario) return;
+            const response = await fetch(`${API_URL}/usuarios/${user.id}/foto`, {
+                method: 'PUT',
+                body: formData,
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
 
-    const permiso = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permiso.granted) {
-      Alert.alert(
-        "Permiso requerido",
-        "Debes permitir acceso a tus fotos para cambiar la foto de perfil."
-      );
-      return;
-    }
+            const json = await response.json();
+            if (response.ok) {
+                Alert.alert("Éxito", "Foto actualizada.");
+                setUser({ ...user, foto_ruta: json.foto_ruta });
+            } else {
+                Alert.alert("Error", "No se pudo subir la foto.");
+            }
+        } catch (error) {
+            Alert.alert("Error", "Fallo de conexión.");
+        } finally {
+            setUploading(false);
+        }
+    };
 
-    const img = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.8,
-    });
+    if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#0056b3" /></View>;
 
-    if (img.canceled) return;
+    // DATOS DE SEGURIDAD (Evita error charAt)
+    const userData = user || { usuario: 'Invitado', nombre: 'Invitado', cargo: '-', dni: '-', celular: '-' };
+    const nombreMostrar = userData.nombre || userData.usuario || 'A';
+    const inicial = nombreMostrar.charAt(0).toUpperCase();
 
-    const asset = img.assets[0];
+    const fotoUrl = userData.foto_ruta 
+        ? (userData.foto_ruta.startsWith('http') ? userData.foto_ruta : `${API_URL.replace('/api', '')}/uploads/${userData.foto_ruta}`)
+        : null;
 
-    try {
-      setSubiendo(true);
-
-      const form = new FormData();
-      form.append("foto", {
-        uri: asset.uri,
-        name: `perfil_${usuario.id}.jpg`,
-        type: "image/jpeg",
-      } as any);
-
-      const res = await fetch(`${API_URL}/usuarios/${usuario.id}/foto`, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "multipart/form-data",
-        },
-        body: form,
-      });
-
-      const data = await res.json();
-
-      if (!data.ok) {
-        Alert.alert("Error", data.message || "No se pudo actualizar la foto");
-        return;
-      }
-
-      const nuevaRuta =
-        data.foto_ruta || data.foto || data.path || usuario.foto_ruta;
-
-      // Actualizamos el usuario en memoria con la nueva ruta
-      setUsuario({ ...usuario, foto_ruta: nuevaRuta });
-
-      Alert.alert("Éxito", "Foto de perfil actualizada.");
-    } catch (error) {
-      console.log("ERROR cambiando foto:", error);
-      Alert.alert("Error", "No se pudo cambiar la foto.");
-    } finally {
-      setSubiendo(false);
-    }
-  };
-
-  if (!usuario) {
     return (
-      <View style={styles.center}>
-        <Text>Cargando perfil...</Text>
-      </View>
+        <ParallaxScrollView
+            headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
+            headerImage={
+                <View style={styles.headerContainer}>
+                   <View style={styles.avatarContainer}>
+                       {fotoUrl ? (
+                           <Image source={{ uri: fotoUrl }} style={styles.avatarImage} />
+                       ) : (
+                           <View style={styles.avatarPlaceholder}>
+                                <Text style={styles.avatarText}>{inicial}</Text>
+                           </View>
+                       )}
+                       <TouchableOpacity style={styles.cameraButton} onPress={pickImage} disabled={uploading}>
+                           {uploading ? <ActivityIndicator size="small" color="#fff"/> : <IconSymbol name="camera.fill" size={20} color="#fff" />}
+                       </TouchableOpacity>
+                   </View>
+                   <ThemedText type="title" style={styles.username}>{userData.nombre}</ThemedText>
+                   <ThemedText style={styles.role}>{userData.cargo}</ThemedText>
+                </View>
+            }>
+            <ThemedView style={styles.contentContainer}>
+                <View style={styles.section}>
+                    <ThemedText type="subtitle">Mis Datos</ThemedText>
+                    <FilaInfo label="Usuario" value={userData.usuario} icon="person.fill" />
+                    <FilaInfo label="DNI" value={userData.dni} icon="creditcard.fill" />
+                    <FilaInfo label="Celular" value={userData.celular} icon="phone.fill" />
+                </View>
+
+                <TouchableOpacity style={styles.btnLogout} onPress={async () => { await cerrarSesion(); router.replace('/login'); }}>
+                    <Text style={{color:'#fff', fontWeight:'bold'}}>CERRAR SESIÓN</Text>
+                </TouchableOpacity>
+            </ThemedView>
+        </ParallaxScrollView>
     );
-  }
-
-  const inicial = usuario.nombre?.[0]?.toUpperCase() || "U";
-
-  // Construimos una URL robusta para la foto, según cómo venga guardada
-  let fotoUri: string | null = null;
-  if (usuario.foto_ruta && usuario.foto_ruta !== "") {
-    let p = usuario.foto_ruta.replace(/\\/g, "/"); // por si viene con backslashes de Windows
-
-    if (p.startsWith("http")) {
-      // Ya es una URL completa
-      fotoUri = p;
-    } else if (p.startsWith("uploads/")) {
-      // Ej: uploads/users/archivo.jpg
-      fotoUri = `${API_BASE}/${p}`;
-    } else if (p.startsWith("users/")) {
-      // Ej: users/archivo.jpg => la carpeta real es /uploads/users
-      fotoUri = `${API_BASE}/uploads/${p}`;
-    } else {
-      // Solo nombre de archivo => asumimos /uploads/users
-      fotoUri = `${API_BASE}/uploads/users/${p}`;
-    }
-  }
-
-  return (
-    <View style={styles.container}>
-      {/* FOTO + BOTÓN */}
-      <View style={styles.fotoBox}>
-        {fotoUri ? (
-          <Image source={{ uri: fotoUri }} style={styles.foto} />
-        ) : (
-          <View style={styles.fotoPlaceholder}>
-            <Text style={styles.fotoInicial}>{inicial}</Text>
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={styles.botonSecundario}
-          onPress={cambiarFoto}
-          disabled={subiendo}
-        >
-          <Text style={styles.botonSecundarioTexto}>
-            {subiendo ? "Subiendo..." : "Cambiar foto"}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* DATOS */}
-      <View style={styles.datosBox}>
-        <Text style={styles.nombre}>{usuario.nombre.toUpperCase()}</Text>
-        <Text style={styles.item}>DNI: {usuario.dni}</Text>
-        <Text style={styles.item}>Celular: {usuario.celular}</Text>
-        <Text style={styles.item}>Cargo: {usuario.cargo}</Text>
-        <Text style={styles.item}>Usuario: {usuario.usuario}</Text>
-      </View>
-
-      {/* CERRAR SESIÓN */}
-      <TouchableOpacity style={styles.botonCerrar} onPress={handleCerrarSesion}>
-        <Text style={styles.botonCerrarTexto}>Cerrar sesión</Text>
-      </TouchableOpacity>
-    </View>
-  );
 }
 
-// ---------------- ESTILOS ----------------
+const FilaInfo = ({ label, value, icon }: any) => (
+    <View style={styles.infoRow}>
+        <IconSymbol name={icon} size={20} color="#666" />
+        <View>
+            <Text style={styles.label}>{label}</Text>
+            <Text style={styles.value}>{value || '-'}</Text>
+        </View>
+    </View>
+);
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: "#f6f6f6" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-
-  fotoBox: {
-    alignItems: "center",
-    marginBottom: 20,
-    marginTop: 10,
-  },
-
-  foto: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: "#ddd",
-  },
-
-  fotoPlaceholder: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: "#999",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  fotoInicial: {
-    color: "white",
-    fontSize: 48,
-    fontWeight: "bold",
-  },
-
-  botonSecundario: {
-    marginTop: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: "#007bff",
-    borderRadius: 6,
-  },
-
-  botonSecundarioTexto: {
-    color: "#fff",
-    fontSize: 14,
-  },
-
-  datosBox: { marginTop: 10 },
-
-  nombre: { fontSize: 22, fontWeight: "bold", marginBottom: 10 },
-
-  item: { fontSize: 16, marginBottom: 4 },
-
-  botonCerrar: {
-    marginTop: 30,
-    backgroundColor: "#cc0000",
-    paddingVertical: 10,
-    borderRadius: 6,
-  },
-
-  botonCerrarTexto: {
-    color: "white",
-    textAlign: "center",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    headerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 40 },
+    avatarContainer: { marginBottom: 10, position: 'relative' },
+    avatarImage: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, borderColor: '#fff' },
+    avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
+    avatarText: { fontSize: 40, color: '#0056b3', fontWeight: 'bold' },
+    cameraButton: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#0056b3', width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#fff' },
+    username: { color: '#fff', fontSize: 22, fontWeight: 'bold' },
+    role: { color: '#e0e0e0', fontSize: 16 },
+    contentContainer: { padding: 20, gap: 20 },
+    section: { backgroundColor: '#fff', borderRadius: 10, padding: 15, gap: 10, elevation: 2 },
+    infoRow: { flexDirection: 'row', alignItems: 'center', gap: 15, borderBottomWidth: 1, borderBottomColor: '#eee', paddingVertical: 8 },
+    label: { fontSize: 12, color: '#999' },
+    value: { fontSize: 16, color: '#333' },
+    btnLogout: { backgroundColor: '#dc3545', padding: 15, borderRadius: 10, alignItems: 'center' }
 });

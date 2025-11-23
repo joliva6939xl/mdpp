@@ -1,64 +1,51 @@
-// Archivo: src/middlewares/upload.middleware.js
+// api/src/middlewares/upload.middleware.js
+
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
-const dotenv = require("dotenv");
 
-dotenv.config();
+// Carpetas de destino
+const evidenciaPath = path.join(__dirname, "../../uploads/evidencias");
+const usuariosPath = path.join(__dirname, "../../uploads/usuarios");
 
-const baseUploadsDir = process.env.UPLOADS_DIR || "uploads";
+if (!fs.existsSync(evidenciaPath)) fs.mkdirSync(evidenciaPath, { recursive: true });
+if (!fs.existsSync(usuariosPath)) fs.mkdirSync(usuariosPath, { recursive: true });
 
-function ensureDirExists(dir) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
-function createStorage(subfolder) {
-  const uploadPath = path.join(baseUploadsDir, subfolder);
-  ensureDirExists(uploadPath);
-
-  return multer.diskStorage({
-    destination: function (req, file, cb) {
-      cb(null, uploadPath);
-    },
-    filename: function (req, file, cb) {
-      const timestamp = Date.now();
-      const ext = path.extname(file.originalname);
-      const baseName = path.basename(file.originalname, ext).replace(/\s+/g, "_");
-      cb(null, `${baseName}_${timestamp}${ext}`);
-    },
-  });
-}
-
-// Solo imágenes para foto de usuario
-const userPhotoUpload = multer({
-  storage: createStorage("users"),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
-  fileFilter: (req, file, cb) => {
-    const isImage = file.mimetype.startsWith("image/");
-    if (!isImage) {
-      return cb(new Error("Solo se permiten imágenes para la foto de usuario"));
-    }
-    cb(null, true);
+// === STORAGE PARA EVIDENCIAS (FOTOS/VIDEOS DE PARTES) ===
+const storageEvidencia = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, evidenciaPath);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, `${unique}${ext}`);
   },
 });
 
-// Imágenes y videos para partes virtuales (máx 100MB por archivo)
-const parteFilesUpload = multer({
-  storage: createStorage("partes"),
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB
-  fileFilter: (req, file, cb) => {
-    const isImage = file.mimetype.startsWith("image/");
-    const isVideo = file.mimetype.startsWith("video/");
-    if (!isImage && !isVideo) {
-      return cb(new Error("Solo se permiten imágenes o videos"));
-    }
-    cb(null, true);
+const evidenciaUpload = multer({
+  storage: storageEvidencia,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+});
+
+// === STORAGE PARA FOTO DE USUARIO ===
+const storageUsuario = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, usuariosPath);
   },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, `${unique}${ext}`);
+  },
+});
+
+const userPhotoUpload = multer({
+  storage: storageUsuario,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
 module.exports = {
+  evidenciaUpload,
   userPhotoUpload,
-  parteFilesUpload,
 };

@@ -1,137 +1,378 @@
-// Archivo: api/src/controllers/partes.controller.js
-const { query } = require("../config/db");
+// api/src/controllers/partes.controller.js
 
-// 1. CREAR PARTE (Tu lógica completa original)
-async function crearParte(req, res, next) {
+// Importamos la conexión a PostgreSQL
+const db = require("../config/db");
+const pool = db.pool || db;
+
+/**
+ * Crear un Parte Virtual con posibles archivos adjuntos (fotos / videos).
+ * Usa:
+ *  - Tabla partes_virtuales para todos los datos del parte
+ *  - Tabla parte_archivos para los archivos
+ */
+const crearParte = async (req, res) => {
+  console.log("📥 Creando Parte Virtual...");
+  console.log("👉 Body recibido en crearParte:", req.body);
+
+  // Datos que manda la app móvil
+  const {
+    parte_fisico,
+    fecha,
+    hora,
+    sector,
+    zona,
+    turno,
+    lugar,
+    unidad_tipo,
+    unidad_numero,
+    placa,
+    conductor,
+    dni_conductor,
+    sumilla,
+    asunto,
+    ocurrencia,
+    sup_zonal,
+    sup_general,
+    usuario_id, // este es el nombre correcto en tu BD
+  } = req.body;
+
+  console.log("👉 Campos mapeados para INSERT en partes_virtuales:", {
+    parte_fisico,
+    fecha,
+    hora,
+    sector,
+    zona,
+    turno,
+    lugar,
+    unidad_tipo,
+    unidad_numero,
+    placa,
+    conductor,
+    dni_conductor,
+    sumilla,
+    asunto,
+    ocurrencia,
+    sup_zonal,
+    sup_general,
+    usuario_id,
+  });
+
+  const client = await pool.connect();
+
   try {
-    // 1. Recibimos todo el cuerpo
-    const {
-      usuario_id, sector, numero_parte_fisico, zona, turno, lugar,
-      fecha, hora, unidad, unidad_numero, placa, conductor,
-      dni, sumilla, asunto, ocurrencia, supervisor_zonal, supervisor_general,
-    } = req.body;
+    await client.query("BEGIN");
 
-    // 2. 🔍 DIAGNÓSTICO EXACTO: ¿Qué falta?
-    const faltantes = [];
-    if (!usuario_id) faltantes.push("usuario_id (Error de sesión)");
-    if (!sector) faltantes.push("sector");
-    if (!fecha) faltantes.push("fecha");
+    // NO usamos fecha_registro porque NO existe en tu tabla
+    const insertParteQuery = `
+      INSERT INTO partes_virtuales (
+        parte_fisico,
+        fecha,
+        hora,
+        sector,
+        zona,
+        turno,
+        lugar,
+        unidad_tipo,
+        unidad_numero,
+        placa,
+        conductor,
+        dni_conductor,
+        sumilla,
+        asunto,
+        ocurrencia,
+        sup_zonal,
+        sup_general,
+        usuario_id
+      )
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9,
+        $10, $11, $12, $13, $14, $15, $16,
+        $17, $18
+      )
+      RETURNING *;
+    `;
 
-    // Si hay faltantes, detenemos todo y avisamos cuál es
-    if (faltantes.length > 0) {
-      return res.status(400).json({
+    const parteResult = await client.query(insertParteQuery, [
+      parte_fisico,
+      fecha,
+      hora,
+      sector,
+      zona,
+      turno,
+      lugar,
+      unidad_tipo,
+      unidad_numero,
+      placa,
+      conductor,
+      dni_conductor,
+      sumilla,
+      asunto,
+      ocurrencia,
+      sup_zonal,
+      sup_general,
+      usuario_id,
+    ]);
+
+    const parte = parteResult.rows[0];
+
+    // id principal de la tabla (asumimos que es "id")
+    const idParte =
+      parte.id ??
+      parte.id_parte ??
+      parte.idparte ??
+      parte.parte_id;
+
+    console.log("✅ Parte insertado, idParte detectado para archivos:", idParte);
+
+    const archivosGuardados = [];
+
+    // Guardar archivos en parte_archivos (si hay)
+    if (req.files && req.files.length > 0) {
+      console.log(`📎 Recibidos ${req.files.length} archivos de evidencia`);
+
+      // IMPORTANTE:
+      // Quitamos nombre_archivo y fecha_subida porque daban error.
+      // Dejamos parte_id, ruta_archivo, tipo_mime, tamano_bytes.
+      const insertArchivoQuery = `
+        INSERT INTO parte_archivos (
+          parte_id,
+          ruta_archivo,
+          tipo_mime,
+          tamano_bytes
+        )
+        VALUES ($1, $2, $3, $4)
+        RETURNING *;
+      `;
+
+      for (const file of req.files) {
+        const rutaRelativa = `uploads/evidencias/${file.filename}`;
+
+        const archivoResult = await client.query(insertArchivoQuery, [
+          idParte,
+          rutaRelativa,
+          file.mimetype,
+          file.size,
+        ]);
+
+        archivosGuardados.push(archivoResult.rows[0]);
+      }
+    } else {
+      console.log("ℹ️ No se recibieron archivos de evidencia en req.files");
+    }
+
+    await client.query("COMMIT");
+
+    return res.status(201).json({
+      ok: true,
+      message: "Parte virtual creado correctamente",
+      parte,
+      archivos: archivosGuardados,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error al crear parte:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Error interno al crear parte",
+      error: error.message,
+    });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * 🔹 LISTAR PARTES VIRTUALES (para el HISTORIAL)
+ * - Si viene ?usuario_id=18 -> lista SOLO los partes de ese usuario
+ * - Si no viene usuario_id -> lista todos
+ */
+const listarPartes = async (req, res) => {
+  console.log("📄 Listando partes virtuales...");
+  console.log("👉 Query recibida en listarPartes:", req.query);
+
+  const { usuario_id } = req.query;
+
+  try {
+    let query;
+    let params = [];
+
+    if (usuario_id) {
+      query = `
+        SELECT *
+        FROM partes_virtuales
+        WHERE usuario_id = $1
+        ORDER BY fecha DESC, hora DESC;
+      `;
+      params = [usuario_id];
+    } else {
+      query = `
+        SELECT *
+        FROM partes_virtuales
+        ORDER BY fecha DESC, hora DESC;
+      `;
+    }
+
+    const result = await pool.query(query, params);
+
+    return res.json({
+      ok: true,
+      total: result.rowCount,
+      data: result.rows,
+      partes: result.rows,
+    });
+  } catch (error) {
+    console.error("❌ Error al listar partes:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Error interno al listar partes",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * 🔹 OBTENER DETALLE DE UN PARTE + ARCHIVOS
+ * Usamos:
+ *  - columna "id" en partes_virtuales
+ *  - columna "parte_id" en parte_archivos
+ * Devolvemos sup_zonal y sup_general tal cual vienen de la BD.
+ */
+const obtenerParte = async (req, res) => {
+  const { id } = req.params;
+  console.log(`🔍 Obteniendo parte id=${id}`);
+
+  try {
+    // 1) Traemos el parte
+    const parteQuery = `
+      SELECT *
+      FROM partes_virtuales
+      WHERE id = $1;
+    `;
+
+    const parteResult = await pool.query(parteQuery, [id]);
+
+    if (parteResult.rowCount === 0) {
+      return res.status(404).json({
         ok: false,
-        message: `Faltan datos: ${faltantes.join(", ")}`,
+        message: "Parte no encontrado",
       });
     }
 
-    // 3. Si todo está bien, procedemos a guardar (Tu lógica original intacta)
-    const insertQuery = `
-      INSERT INTO partes_virtuales (
-        usuario_id, sector, parte_fisico, zona, turno, lugar,
-        fecha, hora, unidad_tipo, unidad_numero, placa, conductor,
-        dni_conductor, sumilla, asunto, ocurrencia, sup_zonal, sup_general
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-      RETURNING *;
+    // Parte tal cual viene de la BD (incluye sup_zonal y sup_general)
+    const parte = parteResult.rows[0];
+
+    const idParte =
+      parte.id ??
+      parte.id_parte ??
+      parte.idparte ??
+      parte.parte_id;
+
+    // 2) Traemos los archivos del parte
+    // SELECT * para no romper por nombres de columnas
+    const archivosQuery = `
+      SELECT *
+      FROM parte_archivos
+      WHERE parte_id = $1;
     `;
 
-    const values = [
-      usuario_id, sector, numero_parte_fisico || null, zona || null, turno || null, lugar || null,
-      fecha || null, hora || null, unidad || null, unidad_numero || null, placa || null, conductor || null,
-      dni || null, sumilla || null, asunto || null, ocurrencia || null, supervisor_zonal || null, supervisor_general || null,
-    ];
+    const archivosResult = await pool.query(archivosQuery, [idParte]);
 
-    const { rows } = await query(insertQuery, values);
-    return res.json({ ok: true, message: "Parte creado correctamente", data: rows[0] });
+    const baseUrl = process.env.BASE_URL || "http://localhost:4000";
 
-  } catch (err) {
-    console.error("ERROR crearParte:", err);
-    next(err);
+    // 3) Armamos evidencias con URL completa y flags de tipo
+    const archivos = archivosResult.rows.map((a) => {
+      // Intentamos detectar la columna que guarda la ruta
+      const ruta =
+        a.ruta_archivo ||
+        a.ruta ||
+        a.path ||
+        a.archivo ||
+        "";
+
+      // Intentamos detectar la columna de MIME
+      const mime =
+        a.tipo_mime ||
+        a.mimetype ||
+        a.mime ||
+        a.tipo ||
+        "";
+
+      const rutaLimpia = ruta.startsWith("/") ? ruta.slice(1) : ruta;
+      const url = rutaLimpia ? `${baseUrl}/${rutaLimpia}` : null;
+
+      return {
+        ...a,
+        url,
+        esImagen: mime.startsWith("image/"),
+        esVideo: mime.startsWith("video/"),
+      };
+    });
+
+    return res.json({
+      ok: true,
+      parte,          // sup_zonal y sup_general van aquí
+      archivos,
+      evidencias: archivos,
+    });
+  } catch (error) {
+    console.error("❌ Error al obtener parte:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Error interno al obtener parte",
+      error: error.message,
+    });
   }
-}
+};
 
-// 2. LISTAR PARTES
-async function listarPartes(req, res, next) {
-  try {
-    const { usuario_id } = req.query;
-    let sql = "SELECT * FROM partes_virtuales";
-    const values = [];
+/**
+ * 🔹 ACTUALIZAR PARTE (solo campo "ocurrencia" por ahora)
+ * Usamos SOLO la columna "id"
+ */
+const actualizarParte = async (req, res) => {
+  const { id } = req.params;
+  const { ocurrencia } = req.body;
 
-    if (usuario_id) {
-      sql += " WHERE usuario_id = $1";
-      values.push(usuario_id);
-    }
-    sql += " ORDER BY creado_en DESC;";
+  console.log(`✏️ Actualizando parte id=${id} con ocurrencia=${ocurrencia}`);
 
-    const { rows } = await query(sql, values);
-    return res.json({ ok: true, data: rows });
-  } catch (err) {
-    console.error("ERROR listarPartes:", err);
-    next(err);
+  if (!ocurrencia) {
+    return res.status(400).json({
+      ok: false,
+      message: "ocurrencia es obligatoria para actualizar",
+    });
   }
-}
 
-// 3. OBTENER PARTE
-async function obtenerParte(req, res, next) {
   try {
-    const { id } = req.params;
-    const { rows } = await query("SELECT * FROM partes_virtuales WHERE id = $1 LIMIT 1;", [id]);
-
-    if (rows.length === 0) {
-      return res.status(404).json({ ok: false, message: "Parte no encontrado" });
-    }
-    return res.json({ ok: true, data: rows[0] });
-  } catch (err) {
-    console.error("ERROR obtenerParte:", err);
-    next(err);
-  }
-}
-
-// 4. ACTUALIZAR PARTE (Tu lógica completa original)
-async function actualizarParte(req, res, next) {
-  try {
-    const { id } = req.params;
-    const {
-      usuario_id, sector, parte_fisico, zona, turno, lugar,
-      fecha, hora, unidad_tipo, unidad_numero, placa, conductor,
-      dni_conductor, sumilla, asunto, ocurrencia, sup_zonal, sup_general,
-    } = req.body;
-
-    if (!usuario_id) {
-      return res.status(400).json({ ok: false, message: "usuario_id obligatorio" });
-    }
-
     const updateQuery = `
       UPDATE partes_virtuales
-      SET
-        sector=$3, parte_fisico=$4, zona=$5, turno=$6, lugar=$7,
-        fecha=$8, hora=$9, unidad_tipo=$10, unidad_numero=$11, placa=$12,
-        conductor=$13, dni_conductor=$14, sumilla=$15, asunto=$16, ocurrencia=$17,
-        sup_zonal=$18, sup_general=$19
-      WHERE id=$1 AND usuario_id=$2
+      SET ocurrencia = $1
+      WHERE id = $2
       RETURNING *;
     `;
 
-    const values = [
-      id, usuario_id, sector || null, parte_fisico || null, zona || null, turno || null, lugar || null,
-      fecha || null, hora || null, unidad_tipo || null, unidad_numero || null, placa || null,
-      conductor || null, dni_conductor || null, sumilla || null, asunto || null, ocurrencia || null,
-      sup_zonal || null, sup_general || null,
-    ];
+    const result = await pool.query(updateQuery, [ocurrencia, id]);
 
-    const { rows } = await query(updateQuery, values);
-
-    if (rows.length === 0) {
-      return res.status(400).json({ ok: false, message: "No se pudo editar (verifica ID o usuario)." });
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "Parte no encontrado",
+      });
     }
-    return res.json({ ok: true, message: "Parte actualizado", data: rows[0] });
-  } catch (err) {
-    console.error("ERROR actualizarParte:", err);
-    next(err);
-  }
-}
 
-// EXPORTAMOS EL OBJETO CON LAS FUNCIONES
+    return res.json({
+      ok: true,
+      message: "Parte actualizado correctamente",
+      parte: result.rows[0],
+    });
+  } catch (error) {
+    console.error("❌ Error al actualizar parte:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Error interno al actualizar parte",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   crearParte,
   listarPartes,

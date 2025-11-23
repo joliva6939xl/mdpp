@@ -1,459 +1,238 @@
-// Archivo: app/(tabs)/index.tsx
-import React, { useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TextInput,
-  StyleSheet,
-  Button,
-  Alert,
-  // Se elimina TouchableOpacity, ya no se usa
-  Platform,
-} from "react-native";
-import { Picker } from "@react-native-picker/picker";
-import * as ImagePicker from "expo-image-picker";
-import API_URL from "../../config/api";
-import { obtenerSesion } from "../utils/session";
+import React, { useState } from 'react';
+import { StyleSheet, TextInput, ScrollView, TouchableOpacity, Text, Alert, Platform, ActivityIndicator, View, Modal, FlatList, Image } from 'react-native';
+import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import { obtenerSesion } from '../utils/session';
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 
-type UnidadTipo = "OMEGA" | "ALFA" | null;
+const API_URL = Platform.OS === 'web' ? 'http://localhost:4000/api' : 'http://10.0.2.2:4000/api';
 
-export default function NuevoParteScreen() {
-  const [usuarioActual, setUsuarioActual] = useState<any | null>(null);
+const LISTAS = {
+    sector: ['1', '2', '3', '4', '5', '6', '7', '8'],
+    zona: ['A', 'B', 'C', 'D', 'E', 'F'],
+    turno: ['MAÑANA', 'TARDE', 'NOCHE']
+};
 
-  const [sector, setSector] = useState("");
-  const [numeroParteFisico, setNumeroParteFisico] = useState("");
-  const [zona, setZona] = useState("");
-  const [turno, setTurno] = useState("");
-  const [lugar, setLugar] = useState("");
-  const [fecha, setFecha] = useState("");
-  const [hora, setHora] = useState("");
+export default function CrearParteScreen() {
+    const router = useRouter();
+    const [loading, setLoading] = useState(false);
+    const [archivos, setArchivos] = useState<any[]>([]); // Fotos/Videos
 
-  const [unidad, setUnidad] = useState<UnidadTipo>(null);
-  const [unidadNumero, setUnidadNumero] = useState<string | null>(null);
-
-  const [placa, setPlaca] = useState("");
-  const [conductor, setConductor] = useState("");
-  const [dniConductor, setDniConductor] = useState("");
-
-  const [sumilla, setSumilla] = useState("");
-  const [asunto, setAsunto] = useState("");
-  const [ocurrencia, setOcurrencia] = useState("");
-
-  const [supZonal, setSupZonal] = useState("");
-  const [supGeneral, setSupGeneral] = useState("");
-
-  // Almacenamiento local de fotos y videos seleccionados
-  const [fotos, setFotos] = useState<string[]>([]);
-  const [videos, setVideos] = useState<string[]>([]);
-
-  const [enviando, setEnviando] = useState(false);
-
-  // Cargar sesión real
-  useEffect(() => {
-    obtenerSesion().then((data) => {
-      setUsuarioActual(data);
-    });
-  }, []);
-  
-  // Se elimina handleSeleccionarUnidadNumero, ya no se usa
-
-  const limpiarFormulario = () => {
-    setSector("");
-    setNumeroParteFisico("");
-    setZona("");
-    setTurno("");
-    setLugar("");
-    setFecha("");
-    setHora("");
-    setUnidad(null);
-    setUnidadNumero(null);
-    setPlaca("");
-    setConductor("");
-    setDniConductor("");
-    setSumilla("");
-    setAsunto("");
-    setOcurrencia("");
-    setSupZonal("");
-    setSupGeneral("");
-    setFotos([]);
-    setVideos([]);
-  };
-
-  // Un solo botón para seleccionar fotos y videos (solo móvil)
-  const handleSeleccionarMedia = async () => {
-    if (Platform.OS === "web") {
-      Alert.alert(
-        "Solo móvil",
-        "Seleccionar foto / video solo estará disponible en la app móvil."
-      );
-      return;
-    }
-
-    const { status } =
-      await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Permiso requerido",
-        "Debes permitir el acceso a la galería para seleccionar fotos o videos."
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsMultipleSelection: true,
-      quality: 0.8,
+    const [form, setForm] = useState({
+        parte_fisico: '', fecha: new Date().toISOString().split('T')[0],
+        hora: new Date().toLocaleTimeString('es-PE', { hour12: false }).slice(0,5),
+        sector: '', zona: '', turno: '', lugar: '',
+        unidad_tipo: '', unidad_numero: '', placa: '',
+        conductor: '', dni_conductor: '',
+        sumilla: '', asunto: '', ocurrencia: '',
+        sup_zonal: '', sup_general: '' 
     });
 
-    if (result.canceled) return;
+    // Estado Selectores
+    const [modalVisible, setModalVisible] = useState(false);
+    const [campoActual, setCampoActual] = useState('');
+    const [opcionesActuales, setOpcionesActuales] = useState<string[]>([]);
 
-    const assets = result.assets || [];
+    const handleChange = (key: string, value: string) => setForm({ ...form, [key]: value });
 
-    const nuevasFotos: string[] = [];
-    const nuevosVideos: string[] = [];
+    const abrirSelector = (campo: string, opciones: string[]) => {
+        setCampoActual(campo);
+        setOpcionesActuales(opciones);
+        setModalVisible(true);
+    };
 
-    for (const asset of assets) {
-      if (asset.type === "image") {
-        nuevasFotos.push(asset.uri);
-      } else if (asset.type === "video") {
-        nuevosVideos.push(asset.uri);
-      }
-    }
+    const seleccionar = (val: string) => {
+        handleChange(campoActual, val);
+        setModalVisible(false);
+    };
 
-    if (nuevasFotos.length) {
-      setFotos((prev) => [...prev, ...nuevasFotos]);
-    }
-    if (nuevosVideos.length) {
-      setVideos((prev) => [...prev, ...nuevosVideos]);
-    }
+    // Función: Adjuntar Evidencia
+    const adjuntarEvidencia = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.All,
+            allowsMultipleSelection: true,
+            quality: 0.7,
+        });
+        if (!result.canceled) {
+            setArchivos([...archivos, ...result.assets]);
+        }
+    };
 
-    Alert.alert(
-      "Archivos seleccionados",
-      `Fotos: ${nuevasFotos.length} | Videos: ${nuevosVideos.length}`
+    const removerArchivo = (index: number) => {
+        const nuevos = [...archivos];
+        nuevos.splice(index, 1);
+        setArchivos(nuevos);
+    };
+
+    // Función: Enviar (FormData)
+    const enviarParte = async () => {
+        if (!form.parte_fisico || !form.sumilla) return Alert.alert("Faltan datos", "N° Parte y Sumilla son obligatorios.");
+        setLoading(true);
+
+        try {
+            const session = await obtenerSesion();
+            if (!session?.usuario?.id) return Alert.alert("Error", "Sesión inválida.");
+
+            // Usamos FormData para enviar Texto + Archivos
+            const formData = new FormData();
+            
+            // Agregamos campos de texto
+            Object.keys(form).forEach(key => {
+                // @ts-ignore
+                formData.append(key, form[key]);
+            });
+            // Agregamos ID usuario
+            formData.append('usuario_id', String(session.usuario.id));
+
+            // Agregamos Archivos
+            archivos.forEach((file, index) => {
+                const tipo = file.type === 'video' ? 'video/mp4' : 'image/jpeg';
+                const ext = file.type === 'video' ? '.mp4' : '.jpg';
+                // @ts-ignore
+                formData.append('evidencia', {
+                    uri: file.uri,
+                    name: `evidencia_${index}${ext}`,
+                    type: tipo
+                });
+            });
+
+            console.log("📤 Enviando FormData a:", `${API_URL}/partes`);
+
+            const response = await fetch(`${API_URL}/partes`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${session.token}`
+                    // NO AGREGAR 'Content-Type': 'multipart/form-data', fetch lo hace solo
+                },
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                Alert.alert("Éxito", "Parte registrado correctamente.");
+                // Reset form
+                setForm({
+                    parte_fisico: '', fecha: new Date().toISOString().split('T')[0], hora: '',
+                    sector: '', zona: '', turno: '', lugar: '', unidad_tipo: '', unidad_numero: '',
+                    placa: '', conductor: '', dni_conductor: '', sumilla: '', asunto: '',
+                    ocurrencia: '', sup_zonal: '', sup_general: ''
+                });
+                setArchivos([]);
+                router.push('/(tabs)/historial');
+            } else {
+                Alert.alert("Error", data.message || "No se pudo guardar.");
+            }
+        } catch (error) {
+            console.error(error);
+            Alert.alert("Error", "Fallo de conexión.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <ThemedView style={styles.container}>
+            <ScrollView contentContainerStyle={styles.scrollContent}>
+                <ThemedText type="title" style={styles.title}>Nuevo Parte Virtual</ThemedText>
+
+                <TextInput style={styles.input} placeholder="N° Parte Físico (*)" value={form.parte_fisico} onChangeText={(t) => handleChange('parte_fisico', t)} />
+                
+                <View style={styles.row}>
+                    <TextInput style={[styles.input, styles.half]} placeholder="Fecha" value={form.fecha} onChangeText={(t) => handleChange('fecha', t)} />
+                    <TextInput style={[styles.input, styles.half]} placeholder="Hora" value={form.hora} onChangeText={(t) => handleChange('hora', t)} />
+                </View>
+
+                {/* SELECTORES */}
+                <View style={styles.row}>
+                    <TouchableOpacity style={[styles.selector, styles.half]} onPress={() => abrirSelector('sector', LISTAS.sector)}>
+                        <Text style={form.sector ? styles.textSelected : styles.textPlaceholder}>{form.sector ? `Sector ${form.sector}` : 'Sector ▼'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.selector, styles.half]} onPress={() => abrirSelector('zona', LISTAS.zona)}>
+                        <Text style={form.zona ? styles.textSelected : styles.textPlaceholder}>{form.zona ? `Zona ${form.zona}` : 'Zona ▼'}</Text>
+                    </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity style={styles.selector} onPress={() => abrirSelector('turno', LISTAS.turno)}>
+                    <Text style={form.turno ? styles.textSelected : styles.textPlaceholder}>{form.turno || 'Seleccionar Turno ▼'}</Text>
+                </TouchableOpacity>
+
+                <TextInput style={styles.input} placeholder="Lugar" value={form.lugar} onChangeText={(t) => handleChange('lugar', t)} />
+
+                <ThemedText type="subtitle" style={styles.st}>Unidad</ThemedText>
+                <View style={styles.row}>
+                    <TextInput style={[styles.input, styles.half]} placeholder="Tipo" value={form.unidad_tipo} onChangeText={(t) => handleChange('unidad_tipo', t)} />
+                    <TextInput style={[styles.input, styles.half]} placeholder="N°" value={form.unidad_numero} onChangeText={(t) => handleChange('unidad_numero', t)} />
+                </View>
+                <TextInput style={styles.input} placeholder="Placa" value={form.placa} onChangeText={(t) => handleChange('placa', t)} />
+                <TextInput style={styles.input} placeholder="Conductor" value={form.conductor} onChangeText={(t) => handleChange('conductor', t)} />
+                <TextInput style={styles.input} placeholder="DNI Conductor" keyboardType="numeric" value={form.dni_conductor} onChangeText={(t) => handleChange('dni_conductor', t)} />
+
+                <ThemedText type="subtitle" style={styles.st}>Detalle</ThemedText>
+                <TextInput style={styles.input} placeholder="Sumilla (*)" value={form.sumilla} onChangeText={(t) => handleChange('sumilla', t)} />
+                <TextInput style={styles.input} placeholder="Asunto" value={form.asunto} onChangeText={(t) => handleChange('asunto', t)} />
+                <TextInput style={[styles.input, styles.textArea]} placeholder="Ocurrencia..." multiline numberOfLines={4} value={form.ocurrencia} onChangeText={(t) => handleChange('ocurrencia', t)} />
+
+                <ThemedText type="subtitle" style={styles.st}>Supervisión</ThemedText>
+                <TextInput style={styles.input} placeholder="Sup. Zonal" value={form.sup_zonal} onChangeText={(t) => handleChange('sup_zonal', t)} />
+                <TextInput style={styles.input} placeholder="Sup. General" value={form.sup_general} onChangeText={(t) => handleChange('sup_general', t)} />
+
+                <ThemedText type="subtitle" style={styles.st}>Evidencia</ThemedText>
+                <TouchableOpacity style={styles.btnEvidencia} onPress={adjuntarEvidencia}>
+                    <IconSymbol name="paperclip" size={20} color="#fff" />
+                    <Text style={{color:'#fff', fontWeight:'bold', marginLeft: 10}}>FOTOS / VIDEOS</Text>
+                </TouchableOpacity>
+
+                <ScrollView horizontal style={{marginTop:10}}>
+                    {archivos.map((f, i) => (
+                        <View key={i} style={{marginRight:10}}>
+                            <Image source={{ uri: f.uri }} style={{width:80, height:80, borderRadius:8}} />
+                            <TouchableOpacity onPress={() => removerArchivo(i)} style={styles.btnRemove}><Text style={{color:'#fff', fontWeight:'bold'}}>X</Text></TouchableOpacity>
+                        </View>
+                    ))}
+                </ScrollView>
+
+                <TouchableOpacity style={styles.button} onPress={enviarParte} disabled={loading}>
+                    {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>REGISTRAR PARTE</Text>}
+                </TouchableOpacity>
+            </ScrollView>
+
+            <Modal visible={modalVisible} transparent animationType="fade">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <Text style={styles.modalTitle}>Seleccionar {campoActual}</Text>
+                        <FlatList data={opcionesActuales} keyExtractor={i => i} renderItem={({item}) => (
+                            <TouchableOpacity style={styles.modalItem} onPress={() => seleccionar(item)}><Text>{item}</Text></TouchableOpacity>
+                        )} />
+                        <TouchableOpacity style={styles.closeBtn} onPress={() => setModalVisible(false)}><Text style={{color:'#fff'}}>Cerrar</Text></TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+        </ThemedView>
     );
-  };
-
-  const handleGuardarParte = async () => {
-    if (!usuarioActual) {
-      Alert.alert(
-        "Sesión",
-        "No se encontró una sesión activa. Inicia sesión nuevamente."
-      );
-      return;
-    }
-
-    try {
-      setEnviando(true);
-
-      const body = {
-        usuario_id: usuarioActual.id,
-        sector,
-        // La columna en la BD es parte_fisico
-        parte_fisico: numeroParteFisico || null,
-        zona,
-        turno,
-        lugar,
-        fecha,
-        hora,
-        unidad_tipo: unidad,
-        unidad_numero: unidadNumero,
-        placa: placa || null,
-        conductor: conductor || null,
-        dni_conductor: dniConductor || null,
-        sumilla: sumilla || null,
-        asunto: asunto || null,
-        ocurrencia: ocurrencia || null,
-        sup_zonal: supZonal || null,
-        sup_general: supGeneral || null,
-        // Más adelante enviaremos fotos y videos reales al backend
-        // fotos,
-        // videos,
-      };
-
-      console.log("Enviando parte desde APP:", body);
-
-      const resp = await fetch(`${API_URL}/partes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      const json = await resp.json().catch(() => null);
-      console.log("Respuesta crear parte:", resp.status, json);
-
-      if (!resp.ok || !json || json.ok === false) {
-        const msg =
-          (json && json.message) ||
-          `Error ${resp.status}. Revisa la consola del backend.`;
-        Alert.alert("Error al guardar parte", msg);
-        return;
-      }
-
-      Alert.alert("Parte creado", "El parte virtual se guardó correctamente.");
-      limpiarFormulario();
-    } catch (error) {
-      console.error("Error en handleGuardarParte:", error);
-      Alert.alert("Error", "No se pudo conectar con el servidor.");
-    } finally {
-      setEnviando(false);
-    }
-  };
-
-  const mediaButtonTitle =
-    fotos.length || videos.length
-      ? `FOTO / VIDEO (${fotos.length} foto(s), ${videos.length} video(s))`
-      : "SELECCIONAR FOTO / VIDEO";
-
-  return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.encabezado}>SEGURIDAD CIUDADANA</Text>
-      <Text style={styles.encabezado}>MUNICIPALIDAD DE PUENTE PIEDRA</Text>
-
-      <Text style={styles.titulo}>Nuevo Parte Virtual de Incidencia</Text>
-
-      <Text style={styles.label}>Sector:</Text>
-      <TextInput
-        style={styles.input}
-        value={sector}
-        onChangeText={setSector}
-        placeholder="Sector"
-      />
-
-      <Text style={styles.label}>N° de Parte Físico:</Text>
-      <TextInput
-        style={styles.input}
-        value={numeroParteFisico}
-        onChangeText={setNumeroParteFisico}
-        placeholder="Ejemplo: 001-2025"
-      />
-
-      <Text style={styles.label}>Zona:</Text>
-      <TextInput
-        style={styles.input}
-        value={zona}
-        onChangeText={setZona}
-        placeholder="Zona"
-      />
-
-      <Text style={styles.label}>Turno:</Text>
-      <Picker
-        selectedValue={turno}
-        onValueChange={(value) => setTurno(String(value))}
-        style={styles.input}
-      >
-        <Picker.Item label="Seleccione un turno" value="" />
-        <Picker.Item label="DIA" value="DIA" />
-        <Picker.Item label="NOCHE" value="NOCHE" />
-      </Picker>
-
-      <Text style={styles.label}>Lugar:</Text>
-      <TextInput
-        style={styles.input}
-        value={lugar}
-        onChangeText={setLugar}
-        placeholder="Lugar"
-      />
-
-      <Text style={styles.label}>Fecha:</Text>
-      <TextInput
-        style={styles.input}
-        value={fecha}
-        onChangeText={setFecha}
-        placeholder="YYYY-MM-DD"
-      />
-
-      <Text style={styles.label}>Hora:</Text>
-      <TextInput
-        style={styles.input}
-        value={hora}
-        onChangeText={setHora}
-        placeholder="HH:MM"
-      />
-
-      {/* Unidad */}
-      <Text style={styles.label}>Tipo de Unidad:</Text>
-      <Picker
-        selectedValue={unidad}
-        onValueChange={(value: UnidadTipo) => setUnidad(value)}
-        style={styles.input}
-      >
-        <Picker.Item label="Seleccione Tipo de Unidad" value={null} />
-        <Picker.Item label="OMEGA" value="OMEGA" />
-        <Picker.Item label="ALFA" value="ALFA" />
-      </Picker>
-
-      {/* Número de Unidad (solo aparece si se ha seleccionado el tipo) */}
-      {unidad && (
-        <>
-          <Text style={styles.label}>Número de Unidad ({unidad}):</Text>
-          <TextInput
-            style={styles.input}
-            value={unidadNumero || ""}
-            onChangeText={setUnidadNumero}
-            placeholder={`Número de ${unidad}`}
-            keyboardType="numeric"
-          />
-        </>
-      )}
-
-      <Text style={styles.label}>Placa:</Text>
-      <TextInput
-        style={styles.input}
-        value={placa}
-        onChangeText={setPlaca}
-        placeholder="Placa"
-      />
-
-      <Text style={styles.label}>Conductor:</Text>
-      <TextInput
-        style={styles.input}
-        value={conductor}
-        onChangeText={setConductor}
-        placeholder="Nombre del conductor"
-      />
-
-      <Text style={styles.label}>DNI del Conductor:</Text>
-      <TextInput
-        style={styles.input}
-        value={dniConductor}
-        onChangeText={setDniConductor}
-        placeholder="DNI"
-        keyboardType="numeric"
-      />
-
-      <Text style={styles.separador}>────────────────────────────</Text>
-      
-      {/* SUMILLA (Convertido a Picker) */}
-      <Text style={styles.label}>Sumilla:</Text>
-      <Picker
-        selectedValue={sumilla}
-        onValueChange={(value) => setSumilla(String(value))}
-        style={styles.input}
-      >
-        <Picker.Item label="Seleccione Sumilla (Incidencia)" value="" />
-        <Picker.Item label="Robo a Transeúnte" value="robo a transeunte" />
-        <Picker.Item label="Consumidores de Sustancias Tóxicas" value="consumidores de sustancias toxicas" />
-        <Picker.Item label="Herido por Arma de Fuego / Arma Blanca" value="herido por arma de fuego /arma blanca" />
-        <Picker.Item label="Choque Vehicular" value="choque vehicular" />
-        <Picker.Item label="Usurpación o Invasión de Terrenos" value="usurpacion o invacion de terrenos" />
-        <Picker.Item label="Robo a Vehículos" value="robo a vehiculos" />
-        <Picker.Item label="Robo a Vivienda" value="robo a vivienda" />
-        <Picker.Item label="Actos Obscenos" value="actos obsenos" />
-        <Picker.Item label="Occiso por Arma de Fuego / Arma Blanca" value="osciso por arma de fuego / arma blanca" />
-        <Picker.Item label="Muerte Natural (Occiso)" value="muerte natural (ocsiso)" />
-        <Picker.Item label="Despiste/Volcadura" value="despiste/volcadura" />
-        <Picker.Item label="Estafa" value="estafa" />
-        <Picker.Item label="Personas o Vehículos Sospechosos" value="personas o vehiculos sospechosos" />
-        <Picker.Item label="Ruidos Molestos" value="ruidos molestos" />
-        <Picker.Item label="Mordedura de Can" value="mordedura de can" />
-        <Picker.Item label="Alteración al Orden Público" value="alteracion al orden publico" />
-        <Picker.Item label="Persona Extraviada" value="persona extraviada" />
-        <Picker.Item label="Disuasión de Meretrices" value="disuacion de meretrices" />
-        <Picker.Item label="Quema de Maleza/Arrojo de Basura" value="quema de maleza/arrojo de basura" />
-        <Picker.Item label="Aniego" value="aniego" />
-        <Picker.Item label="Retención de Delincuentes" value="retencion de delincuentes" />
-        <Picker.Item label="Violencia Familiar o Sexual" value="violencia familiar o sexual" />
-        <Picker.Item label="Consumidores de Alcohol" value="consumidores de alcohol" />
-        <Picker.Item label="Incendio" value="incendio" />
-        <Picker.Item label="Atropello/Caída de Pasajero" value="atropello/caida de pasajero" />
-        <Picker.Item label="Atención Paramédica" value="atencion paramedica" />
-        <Picker.Item label="Otros" value="otros" />
-      </Picker>
-
-      {/* ASUNTO (Cambiado a Origen de la Atención y convertido a Picker) */}
-      <Text style={styles.label}>Origen de la atención:</Text>
-      <Picker
-        selectedValue={asunto}
-        onValueChange={(value) => setAsunto(String(value))}
-        style={styles.input}
-      >
-        <Picker.Item label="Seleccione Origen de la Atención" value="" />
-        <Picker.Item label="Patrullaje" value="patrullaje" />
-        <Picker.Item label="Alerta Radial" value="alerta radial" />
-        <Picker.Item label="Central de Cámaras" value="central de camaras" />
-        <Picker.Item label="Operativo" value="operativo" />
-        <Picker.Item label="Llamada PNP" value="llamada pnp" />
-      </Picker>
-
-      <Text style={styles.label}>Ocurrencia:</Text>
-      <TextInput
-        style={[styles.input, { height: 120 }]}
-        value={ocurrencia}
-        onChangeText={setOcurrencia}
-        multiline
-        placeholder="Describa la ocurrencia..."
-      />
-
-      <Text style={styles.separador}>────────────────────────────</Text>
-
-      <Text style={styles.label}>Jefe de Operaciones:</Text>
-      <Text style={styles.textoFijo}>MORI TRIGOSO</Text>
-
-      <Text style={styles.label}>Supervisor Zonal:</Text>
-      <TextInput
-        style={styles.input}
-        value={supZonal}
-        onChangeText={setSupZonal}
-        placeholder="Supervisor Zonal"
-      />
-
-      <Text style={styles.label}>Supervisor General:</Text>
-      <TextInput
-        style={styles.input}
-        value={supGeneral}
-        onChangeText={setSupGeneral}
-        placeholder="Supervisor General"
-      />
-
-      {/* Botón único FOTO/VIDEO */}
-      <View style={{ marginTop: 20 }}>
-        <Button title={mediaButtonTitle} onPress={handleSeleccionarMedia} />
-      </View>
-
-      <View style={{ marginTop: 20, marginBottom: 30 }}>
-        <Button
-          title={enviando ? "GUARDANDO..." : "GUARDAR PARTE"}
-          onPress={handleGuardarParte}
-          disabled={enviando}
-        />
-      </View>
-    </ScrollView>
-  );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: "#f5f5f5" },
-  encabezado: {
-    textAlign: "center",
-    fontWeight: "bold",
-    fontSize: 14,
-  },
-  titulo: {
-    textAlign: "center",
-    fontWeight: "bold",
-    fontSize: 18,
-    marginVertical: 16,
-  },
-  label: { marginTop: 10, fontWeight: "bold" },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    marginTop: 4,
-    backgroundColor: "white",
-  },
-  // Se han eliminado los estilos de Unidad para evitar advertencias.
-  separador: {
-    marginTop: 15,
-    marginBottom: 5,
-    textAlign: "center",
-    color: "#999",
-  },
-  textoFijo: {
-    marginTop: 4,
-    fontSize: 16,
-  },
+    container: { flex: 1 },
+    scrollContent: { padding: 20, paddingBottom: 50 },
+    title: { textAlign: 'center', marginBottom: 20 },
+    st: { marginTop: 15, marginBottom: 5, color: '#0056b3' },
+    input: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 12, marginBottom: 10 },
+    selector: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 12, marginBottom: 10, justifyContent: 'center' },
+    textPlaceholder: { color: '#999' },
+    textSelected: { color: '#000' },
+    row: { flexDirection: 'row', gap: 10 },
+    half: { flex: 1 },
+    textArea: { height: 100, textAlignVertical: 'top' },
+    button: { backgroundColor: '#0056b3', padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 20 },
+    buttonText: { color: '#fff', fontWeight: 'bold' },
+    btnEvidencia: { backgroundColor: '#28a745', padding: 12, borderRadius: 8, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+    btnRemove: { position: 'absolute', top:-5, right:-5, backgroundColor:'red', width:20, height:20, borderRadius:10, alignItems:'center', justifyContent:'center'},
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+    modalContent: { width: '80%', backgroundColor: '#fff', borderRadius: 10, padding: 20, maxHeight: '60%' },
+    modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
+    modalItem: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#eee' },
+    closeBtn: { marginTop: 15, padding: 10, backgroundColor: '#dc3545', borderRadius: 5, alignItems: 'center' }
 });
