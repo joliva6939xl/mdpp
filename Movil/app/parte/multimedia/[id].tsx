@@ -11,8 +11,8 @@ import {
   Platform, // Importar Platform
 } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
-// ♻️ REFACTOR: Cambiamos al nuevo paquete de video
-import { Video } from "expo-video";
+// ♻️ REFACTOR: Cambiamos al nuevo paquete de video y su API
+import { VideoView, useVideoPlayer } from "expo-video";
 
 // Corregir la definición de API_URL, eliminando la importación rota
 const API_URL = Platform.OS === 'web' ? 'http://localhost:4000/api' : 'http://10.0.2.2:4000/api';
@@ -22,6 +22,21 @@ type ParteDetalle = {
   fotos?: string[] | null;
   videos?: string[] | null;
 };
+
+// Componente individual para cada video, para poder usar el hook `useVideoPlayer`
+function VideoPlayerComponent({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri);
+
+  return (
+    <VideoView
+      player={player}
+      nativeControls
+      contentFit="contain" // `resizeMode` se reemplaza por `contentFit`
+      style={styles.video}
+    />
+  );
+}
+
 
 export default function MultimediaScreen() {
   const { id } = useLocalSearchParams();
@@ -92,13 +107,7 @@ export default function MultimediaScreen() {
         <View>
           <Text style={styles.seccion}>Videos</Text>
           {parte.videos.map((v, i) => (
-            <Video
-              key={i}
-              source={{ uri: `${baseRuta}/${v}` }}
-              nativeControls // ♻️ REFACTOR: Prop actualizada
-              resizeMode="contain" // ♻️ REFACTOR: Prop actualizada
-              style={styles.video}
-            />
+            <VideoPlayerComponent key={i} uri={`${baseRuta}/${v}`} />
           ))}
         </View>
       )}
