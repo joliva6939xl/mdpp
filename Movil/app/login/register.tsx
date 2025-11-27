@@ -12,6 +12,7 @@ import {
 import { Picker } from "@react-native-picker/picker";
 import { useRouter } from "expo-router";
 import API_URL from "../../config/api";
+import { guardarSesion } from '../../utils/session';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -55,30 +56,45 @@ export default function RegisterScreen() {
         return;
       }
 
-      // ✅ ÉXITO → mostrar usuario + contraseña (DNI)
+      // ✅ ÉXITO → Iniciar sesión automáticamente
       const creado = json.data || {};
-      const usuarioGenerado = creado.usuario || "(revisar en sistema)";
-      const passwordGenerada = creado.dni || creado.contrasena || dni;
+      const usuarioGenerado = creado.usuario;
+      const passwordGenerada = dni; // La contraseña es el DNI
 
+      // 1. Mostrar alerta con credenciales
       Alert.alert(
-        "Usuario creado",
-        `El usuario se creó correctamente.\n\nUsuario: ${usuarioGenerado}\nContraseña: ${passwordGenerada}`,
+        "Usuario Creado con Éxito",
+        `Usuario: ${usuarioGenerado}\nContraseña: ${passwordGenerada}`,
         [
           {
-            text: "OK",
-            onPress: () => {
-              // Volver AUTOMÁTICAMENTE al login
-              router.replace("/login" as any);
+            text: "Iniciar Sesión",
+            onPress: async () => {
+              try {
+                // 2. Intentar login
+                const loginResponse = await fetch(`${API_URL}/auth/login`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ usuario: usuarioGenerado, contrasena: passwordGenerada }),
+                });
+
+                const loginJson = await loginResponse.json();
+
+                if (loginResponse.ok) {
+                  // 3. Guardar sesión y redirigir
+                  await guardarSesion(loginJson.token, loginJson.usuario);
+                  router.replace('/(tabs)/perfil' as any);
+                } else {
+                  Alert.alert("Error de Login", "No se pudo iniciar sesión automáticamente.");
+                  router.replace("/login" as any);
+                }
+              } catch {
+                Alert.alert("Error", "Fallo al intentar iniciar sesión.");
+                router.replace("/login" as any);
+              }
             },
           },
         ]
       );
-
-      // Limpiar formulario (por si regresa luego)
-      setNombre("");
-      setDni("");
-      setCelular("");
-      setCargo("sereno operador de campo");
     } catch (error) {
       console.error("Error registrando usuario desde APP:", error);
       Alert.alert(

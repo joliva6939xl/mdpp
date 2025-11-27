@@ -130,28 +130,31 @@ const crearParte = async (req, res) => {
     if (req.files && req.files.length > 0) {
       console.log(`📎 Recibidos ${req.files.length} archivos de evidencia`);
 
-      // IMPORTANTE:
-      // Quitamos nombre_archivo y fecha_subida porque daban error.
-      // Dejamos parte_id, ruta_archivo, tipo_mime, tamano_bytes.
+      //
+      // Corregimos la consulta para que coincida con la tabla `parte_archivos`
       const insertArchivoQuery = `
         INSERT INTO parte_archivos (
           parte_id,
-          ruta_archivo,
-          tipo_mime,
-          tamano_bytes
+          tipo,
+          ruta,
+          nombre_original
         )
         VALUES ($1, $2, $3, $4)
         RETURNING *;
       `;
 
       for (const file of req.files) {
-        const rutaRelativa = `uploads/evidencias/${file.filename}`;
+        // Determinamos si es 'foto' o 'video' a partir del mimetype
+        const tipoArchivo = file.mimetype.startsWith('image/') ? 'foto' : 'video';
+
+        // Usamos file.path que contiene la ruta completa guardada por multer
+        const rutaCompleta = file.path;
 
         const archivoResult = await client.query(insertArchivoQuery, [
           idParte,
-          rutaRelativa,
-          file.mimetype,
-          file.size,
+          tipoArchivo,
+          rutaCompleta,
+          file.originalname, // Guardamos el nombre original que el usuario subió
         ]);
 
         archivosGuardados.push(archivoResult.rows[0]);
@@ -244,7 +247,26 @@ const obtenerParte = async (req, res) => {
   try {
     // 1) Traemos el parte
     const parteQuery = `
-      SELECT *
+      SELECT
+        id,
+        parte_fisico,
+        fecha,
+        hora,
+        sector,
+        zona,
+        turno,
+        lugar,
+        unidad_tipo,
+        unidad_numero,
+        placa,
+        conductor,
+        dni_conductor,
+        sumilla,
+        asunto,
+        ocurrencia,
+        sup_zonal AS supervisor_zonal,
+        sup_general AS supervisor_general,
+        usuario_id
       FROM partes_virtuales
       WHERE id = $1;
     `;
@@ -277,42 +299,23 @@ const obtenerParte = async (req, res) => {
 
     const archivosResult = await pool.query(archivosQuery, [idParte]);
 
-    const baseUrl = process.env.BASE_URL || "http://localhost:4000";
+    // 3) Extraemos los nombres de archivo para fotos y videos
+    const fotos = archivosResult.rows
+      .filter(a => a.tipo === "foto")
+      .map(a => a.ruta.split(/[\\/]/).pop()); // Funciona para rutas con \ o /
 
-    // 3) Armamos evidencias con URL completa y flags de tipo
-    const archivos = archivosResult.rows.map((a) => {
-      // Intentamos detectar la columna que guarda la ruta
-      const ruta =
-        a.ruta_archivo ||
-        a.ruta ||
-        a.path ||
-        a.archivo ||
-        "";
+    const videos = archivosResult.rows
+      .filter(a => a.tipo === "video")
+      .map(a => a.ruta.split(/[\\/]/).pop()); // Funciona para rutas con \ o /
 
-      // Intentamos detectar la columna de MIME
-      const mime =
-        a.tipo_mime ||
-        a.mimetype ||
-        a.mime ||
-        a.tipo ||
-        "";
-
-      const rutaLimpia = ruta.startsWith("/") ? ruta.slice(1) : ruta;
-      const url = rutaLimpia ? `${baseUrl}/${rutaLimpia}` : null;
-
-      return {
-        ...a,
-        url,
-        esImagen: mime.startsWith("image/"),
-        esVideo: mime.startsWith("video/"),
-      };
-    });
+    // 4) Adjuntamos las listas de archivos al objeto del parte
+    parte.fotos = fotos;
+    parte.videos = videos;
 
     return res.json({
       ok: true,
-      parte,          // sup_zonal y sup_general van aquí
-      archivos,
-      evidencias: archivos,
+      parte, // Ahora el objeto 'parte' contiene las listas de fotos y videos
+      data: parte, // Mantenemos 'data' por consistencia con otras respuestas
     });
   } catch (error) {
     console.error("❌ Error al obtener parte:", error);

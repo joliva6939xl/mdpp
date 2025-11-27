@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StyleSheet, TextInput, ScrollView, TouchableOpacity, Text, Alert, Platform, ActivityIndicator, View, Modal, FlatList, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { obtenerSesion } from '../utils/session';
+import { obtenerSesion } from '../../utils/session';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
