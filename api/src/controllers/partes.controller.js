@@ -244,7 +244,26 @@ const obtenerParte = async (req, res) => {
   try {
     // 1) Traemos el parte
     const parteQuery = `
-      SELECT *
+      SELECT
+        id,
+        parte_fisico,
+        fecha,
+        hora,
+        sector,
+        zona,
+        turno,
+        lugar,
+        unidad_tipo,
+        unidad_numero,
+        placa,
+        conductor,
+        dni_conductor,
+        sumilla,
+        asunto,
+        ocurrencia,
+        sup_zonal AS supervisor_zonal,
+        sup_general AS supervisor_general,
+        usuario_id
       FROM partes_virtuales
       WHERE id = $1;
     `;
@@ -279,40 +298,23 @@ const obtenerParte = async (req, res) => {
 
     const baseUrl = process.env.BASE_URL || "http://localhost:4000";
 
-    // 3) Armamos evidencias con URL completa y flags de tipo
-    const archivos = archivosResult.rows.map((a) => {
-      // Intentamos detectar la columna que guarda la ruta
-      const ruta =
-        a.ruta_archivo ||
-        a.ruta ||
-        a.path ||
-        a.archivo ||
-        "";
+    // 3) Extraemos los nombres de archivo para fotos y videos
+    const fotos = archivosResult.rows
+      .filter(a => a.tipo_mime && a.tipo_mime.startsWith("image/"))
+      .map(a => a.ruta_archivo.split('/').pop());
 
-      // Intentamos detectar la columna de MIME
-      const mime =
-        a.tipo_mime ||
-        a.mimetype ||
-        a.mime ||
-        a.tipo ||
-        "";
+    const videos = archivosResult.rows
+      .filter(a => a.tipo_mime && a.tipo_mime.startsWith("video/"))
+      .map(a => a.ruta_archivo.split('/').pop());
 
-      const rutaLimpia = ruta.startsWith("/") ? ruta.slice(1) : ruta;
-      const url = rutaLimpia ? `${baseUrl}/${rutaLimpia}` : null;
-
-      return {
-        ...a,
-        url,
-        esImagen: mime.startsWith("image/"),
-        esVideo: mime.startsWith("video/"),
-      };
-    });
+    // 4) Adjuntamos las listas de archivos al objeto del parte
+    parte.fotos = fotos;
+    parte.videos = videos;
 
     return res.json({
       ok: true,
-      parte,          // sup_zonal y sup_general van aquí
-      archivos,
-      evidencias: archivos,
+      parte, // Ahora el objeto 'parte' contiene las listas de fotos y videos
+      data: parte, // Mantenemos 'data' por consistencia con otras respuestas
     });
   } catch (error) {
     console.error("❌ Error al obtener parte:", error);
