@@ -244,7 +244,27 @@ const obtenerParte = async (req, res) => {
   try {
     // 1) Traemos el parte
     const parteQuery = `
-      SELECT *
+      SELECT
+        id,
+        parte_fisico,
+        fecha,
+        hora,
+        sector,
+        zona,
+        turno,
+        lugar,
+        unidad_tipo,
+        unidad_numero,
+        placa,
+        conductor,
+        dni_conductor,
+        sumilla,
+        asunto,
+        ocurrencia,
+        sup_zonal AS supervisor_zonal,
+        sup_general AS supervisor_general,
+        usuario_id,
+        jefe_operaciones
       FROM partes_virtuales
       WHERE id = $1;
     `;
