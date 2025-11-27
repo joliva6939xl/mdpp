@@ -130,28 +130,31 @@ const crearParte = async (req, res) => {
     if (req.files && req.files.length > 0) {
       console.log(`📎 Recibidos ${req.files.length} archivos de evidencia`);
 
-      // IMPORTANTE:
-      // Quitamos nombre_archivo y fecha_subida porque daban error.
-      // Dejamos parte_id, ruta_archivo, tipo_mime, tamano_bytes.
+      //
+      // Corregimos la consulta para que coincida con la tabla `parte_archivos`
       const insertArchivoQuery = `
         INSERT INTO parte_archivos (
           parte_id,
-          ruta_archivo,
-          tipo_mime,
-          tamano_bytes
+          tipo,
+          ruta,
+          nombre_original
         )
         VALUES ($1, $2, $3, $4)
         RETURNING *;
       `;
 
       for (const file of req.files) {
-        const rutaRelativa = `uploads/evidencias/${file.filename}`;
+        // Determinamos si es 'foto' o 'video' a partir del mimetype
+        const tipoArchivo = file.mimetype.startsWith('image/') ? 'foto' : 'video';
+
+        // Usamos file.path que contiene la ruta completa guardada por multer
+        const rutaCompleta = file.path;
 
         const archivoResult = await client.query(insertArchivoQuery, [
           idParte,
-          rutaRelativa,
-          file.mimetype,
-          file.size,
+          tipoArchivo,
+          rutaCompleta,
+          file.originalname, // Guardamos el nombre original que el usuario subió
         ]);
 
         archivosGuardados.push(archivoResult.rows[0]);
@@ -298,12 +301,12 @@ const obtenerParte = async (req, res) => {
 
     // 3) Extraemos los nombres de archivo para fotos y videos
     const fotos = archivosResult.rows
-      .filter(a => a.tipo_mime && a.tipo_mime.startsWith("image/"))
-      .map(a => a.ruta_archivo.split('/').pop());
+      .filter(a => a.tipo === "foto")
+      .map(a => a.ruta.split(/[\\/]/).pop()); // Funciona para rutas con \ o /
 
     const videos = archivosResult.rows
-      .filter(a => a.tipo_mime && a.tipo_mime.startsWith("video/"))
-      .map(a => a.ruta_archivo.split('/').pop());
+      .filter(a => a.tipo === "video")
+      .map(a => a.ruta.split(/[\\/]/).pop()); // Funciona para rutas con \ o /
 
     // 4) Adjuntamos las listas de archivos al objeto del parte
     parte.fotos = fotos;
