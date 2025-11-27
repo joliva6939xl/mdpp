@@ -51,46 +51,19 @@ const actualizarParte =
         });
       };
 
-// ==================== AUTH MIDDLEWARE ====================
-const authMiddleware = require("../middlewares/auth.middleware");
+// ==================== MIDDLEWARES ====================
+// Corregimos la importación para que sea directa y sin lógicas complejas
+const { fakeAuth: verificarToken } = require("../middlewares/auth.middleware");
+const { evidenciaUpload } = require("../middlewares/upload.middleware");
 
-const verificarToken =
-  typeof authMiddleware === "function"
-    ? authMiddleware
-    : typeof authMiddleware?.verificarToken === "function"
-    ? authMiddleware.verificarToken
-    : (req, res, next) => {
-        // Fallback: si aún no tienes auth bien implementado, no rompemos el server
-        console.warn(
-          "verificarToken no definido correctamente, se deja pasar la petición sin validar token"
-        );
-        next();
-      };
+// Obtenemos directamente el middleware de multer para subir múltiples archivos
+const evidenciaArrayMiddleware = evidenciaUpload.array("evidencia", 10);
 
-// ==================== UPLOAD MIDDLEWARE ====================
-const uploadMiddleware = require("../middlewares/upload.middleware");
-
-// soporta tanto:
-// module.exports = { evidenciaUpload, ... }
-// como
-// module.exports = upload
-const evidenciaUpload =
-  uploadMiddleware?.evidenciaUpload || uploadMiddleware;
-
-// middleware para múltiples archivos "evidencia"
-const evidenciaArrayMiddleware =
-  evidenciaUpload && typeof evidenciaUpload.array === "function"
-    ? evidenciaUpload.array("evidencia", 10)
-    : (req, res, next) => {
-        console.warn(
-          "evidenciaUpload.array no definido, se continúa sin procesar archivos"
-        );
-        next();
-      };
 
 // ==================== RUTAS ====================
 
 // Crear parte (con evidencias opcionales)
+// Usamos el middleware corregido
 router.post("/", verificarToken, evidenciaArrayMiddleware, crearParte);
 
 // Listar partes

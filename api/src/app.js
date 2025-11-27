@@ -42,7 +42,10 @@ app.use("/api/admin", authAdminRoutes);
 // Esto soluciona el error 404 en el POST /api/partes
 app.use("/api/partes", partesRoutes);
 
-// Manejo de errores global
+// 4. Rutas de Usuarios (movido aquí para consistencia)
+app.use("/api/usuarios", usuariosRoutes);
+
+// Manejo de errores global (DEBE IR AL FINAL)
 app.use((err, req, res, next) => {
     console.error("Error no controlado:", err);
     res.status(err.status || 500).json({
@@ -50,5 +53,4 @@ app.use((err, req, res, next) => {
         message: err.message || "Error interno del servidor"
     });
 });
-app.use("/api/usuarios", usuariosRoutes);
 module.exports = app;
