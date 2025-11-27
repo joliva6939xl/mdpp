@@ -13,7 +13,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Video, ResizeMode } from "expo-av";
 import API_URL from "../../../config/api";
-import { obtenerSesion } from "../../utils/session";
+import { obtenerSesion } from "../../../utils/session";
 
 type ParteDetalle = {
   id: number;
