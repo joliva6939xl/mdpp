@@ -71,8 +71,7 @@ export default function MultimediaScreen() {
     );
   }
 
-  // La URL base es simplemente la dirección del servidor. La API ya devuelve la ruta completa.
-  const serverBaseUrl = API_URL.replace('/api', '');
+  // La URL base para los archivos multimedia se construye sin /api
   const baseRuta = `${API_URL.replace('/api', '')}/uploads/partes/${parte.id}`;
 
   return (
