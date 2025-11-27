@@ -6,4 +6,4 @@ export {
   getPartes,
   getParteById,
   clearPartes,
-} from "../data/tempPartes";
+} from "../app/data/tempPartes";

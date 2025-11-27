@@ -12,7 +12,7 @@ import {
     ScrollView
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { guardarSesion } from '../utils/session'; 
+import { guardarSesion } from '../../utils/session'; 
 
 // ⚠️ Usamos localhost para solucionar errores de conexión en Web/Emulador
 const API_URL = 'http://localhost:4000/api'; 

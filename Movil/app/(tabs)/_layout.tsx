@@ -1,7 +1,7 @@
 // Archivo: app/(tabs)/_layout.tsx
 import { Tabs, Redirect } from "expo-router";
 import { useEffect, useState } from "react";
-import { obtenerSesion } from "../utils/session";
+import { obtenerSesion } from "../../utils/session";
 
 export default function TabsLayout() {
   const [cargando, setCargando] = useState(true);
