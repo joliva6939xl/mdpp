@@ -32,15 +32,14 @@ const registrarUsuario = async (req, res) => {
 
         const result = await pool.query(
             `INSERT INTO usuarios (nombre, dni, celular, cargo, usuario, contrasena, foto_ruta, estado) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVO') RETURNING id`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVO') RETURNING *`,
             [nombre, dni, celular, cargo, usuarioFinal, passwordClean, foto_ruta]
         );
 
         res.status(201).json({
             ok: true,
-            message: 'Registrado correctamente',
-            userId: result.rows[0].id,
-            usuarioGenerado: usuarioFinal
+            message: 'Usuario registrado correctamente',
+            data: result.rows[0] // Devuelve el usuario completo
         });
 
     } catch (error) {
