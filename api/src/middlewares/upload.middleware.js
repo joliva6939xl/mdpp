@@ -1,51 +1,55 @@
-// api/src/middlewares/upload.middleware.js
-
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
-// Carpetas de destino
-const evidenciaPath = path.join(__dirname, "../../uploads/evidencias");
-const usuariosPath = path.join(__dirname, "../../uploads/usuarios");
+const baseUploadDir = path.resolve(__dirname, "../../uploads");
 
-if (!fs.existsSync(evidenciaPath)) fs.mkdirSync(evidenciaPath, { recursive: true });
-if (!fs.existsSync(usuariosPath)) fs.mkdirSync(usuariosPath, { recursive: true });
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
 
-// === STORAGE PARA EVIDENCIAS (FOTOS/VIDEOS DE PARTES) ===
-const storageEvidencia = multer.diskStorage({
+// Storage para evidencias (fotos / videos) de partes_virtuales
+const evidenciaStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, evidenciaPath);
+    const tmpDir = path.join(baseUploadDir, "tmp");
+    ensureDir(tmpDir);
+    cb(null, tmpDir);
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
     const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const extFromName = path.extname(file.originalname || "");
+    let ext = extFromName;
+
+    if (!ext) {
+      if ((file.mimetype || "").startsWith("video")) {
+        ext = ".mp4";
+      } else {
+        ext = ".jpg";
+      }
+    }
+
     cb(null, `${unique}${ext}`);
   },
 });
 
-const evidenciaUpload = multer({
-  storage: storageEvidencia,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
-});
-
-// === STORAGE PARA FOTO DE USUARIO ===
-const storageUsuario = multer.diskStorage({
+// Storage para foto de perfil de usuario
+const usuarioStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, usuariosPath);
+    const userDir = path.join(baseUploadDir, "usuarios");
+    ensureDir(userDir);
+    cb(null, userDir);
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
     const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const extFromName = path.extname(file.originalname || "");
+    const ext = extFromName || ".jpg";
     cb(null, `${unique}${ext}`);
   },
 });
 
-const userPhotoUpload = multer({
-  storage: storageUsuario,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-});
+const upload = multer({ storage: evidenciaStorage });       // 👉 para PARTES
+const userPhotoUpload = multer({ storage: usuarioStorage }); // 👉 para FOTO PERFIL
 
-module.exports = {
-  evidenciaUpload,
-  userPhotoUpload,
-};
+module.exports = { upload, userPhotoUpload };

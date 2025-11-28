@@ -1,4 +1,5 @@
-// Archivo: app/parte/multimedia/[id].tsx
+// Movil/app/parte/multimedia/[id].tsx
+
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -6,55 +7,48 @@ import {
   StyleSheet,
   ScrollView,
   Image,
-  TouchableOpacity,
-  Modal,
-  Platform, // Importar Platform
+  ActivityIndicator,
+  Platform,
 } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
-// ♻️ REFACTOR: Cambiamos al nuevo paquete de video y su API
-import { VideoView, useVideoPlayer } from "expo-video";
+import { Video, ResizeMode } from "expo-av";
 
-// Corregir la definición de API_URL, eliminando la importación rota
-const API_URL = Platform.OS === 'web' ? 'http://localhost:4000/api' : 'http://10.0.2.2:4000/api';
+const API_URL =
+  Platform.OS === "web"
+    ? "http://localhost:4000/api"
+    : "http://10.0.2.2:4000/api";
 
-type ParteDetalle = {
+// BASE_URL = http://localhost:4000
+const BASE_URL = API_URL.replace("/api", "");
+
+type ParteMultimedia = {
   id: number;
-  fotos?: string[] | null;
-  videos?: string[] | null;
+  fotos?: string[];
+  videos?: string[];
 };
 
-// Componente individual para cada video, para poder usar el hook `useVideoPlayer`
-function VideoPlayerComponent({ uri }: { uri: string }) {
-  const player = useVideoPlayer(uri);
-
-  return (
-    <VideoView
-      player={player}
-      nativeControls
-      contentFit="contain" // `resizeMode` se reemplaza por `contentFit`
-      style={styles.video}
-    />
-  );
-}
-
-
-export default function MultimediaScreen() {
+export default function MultimediaParteScreen() {
   const { id } = useLocalSearchParams();
-  const [parte, setParte] = useState<ParteDetalle | null>(null);
-  const [fotoVisible, setFotoVisible] = useState(false);
-  const [fotoSeleccionada, setFotoSeleccionada] = useState<string | null>(null);
+  const [parte, setParte] = useState<ParteMultimedia | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const cargar = async () => {
       try {
-        const cacheBuster = `?_=${new Date().getTime()}`;
-        const res = await fetch(`${API_URL}/partes/${id}${cacheBuster}`);
+        const res = await fetch(`${API_URL}/partes/${id}`);
         const data = await res.json();
+
         if (data.ok) {
-          setParte(data.parte);
+          const p: ParteMultimedia = data.parte || data.data || data;
+          console.log("📸 Parte multimedia cargada:", p);
+          setParte(p);
+        } else {
+          console.log("⚠️ Error desde API multimedia:", data);
         }
       } catch (e) {
-        console.log("Error cargando parte:", e);
+        console.log("❌ Error cargando multimedia:", e);
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -63,111 +57,122 @@ export default function MultimediaScreen() {
     }
   }, [id]);
 
-  if (!parte) {
+  if (loading) {
     return (
       <View style={styles.center}>
-        <Text>Cargando multimedia...</Text>
+        <ActivityIndicator size="large" />
+        <Text style={{ marginTop: 10 }}>Cargando multimedia...</Text>
       </View>
     );
   }
 
-  // La URL base para los archivos multimedia se construye sin /api
-  const baseRuta = `${API_URL.replace('/api', '')}/uploads/partes/${parte.id}`;
+  if (!parte) {
+    return (
+      <View style={styles.center}>
+        <Text>No se encontró información del parte.</Text>
+      </View>
+    );
+  }
+
+  const fotos = parte.fotos || [];
+  const videos = parte.videos || [];
+
+  const buildUrl = (ruta: string) => {
+    const limpia = ruta.replace(/\\/g, "/");
+    return `${BASE_URL}/uploads/${limpia}`;
+  };
+
+  const numeroParte = parte.id || id;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Stack.Screen options={{ title: `Multimedia Parte #${id}` }} />
-      <Text style={styles.header}>Contenido Multimedia</Text>
-      
-      {/* FOTOS */}
-      {parte.fotos && parte.fotos.length > 0 && (
-        <View>
-          <Text style={styles.seccion}>Fotos</Text>
-          <View style={styles.fila}>
-            {parte.fotos.map((f, i) => (
-              <TouchableOpacity
-                key={i}
-                onPress={() => {
-                  setFotoSeleccionada(`${baseRuta}/${f}`);
-                  setFotoVisible(true);
-                }}
-              >
-                <Image
-                  source={{ uri: `${baseRuta}/${f}` }}
-                  style={styles.fotoMini}
-                />
-              </TouchableOpacity>
+    <>
+      <Stack.Screen
+        options={{
+          title: `Multimedia Parte #${numeroParte}`,
+        }}
+      />
+      <ScrollView contentContainerStyle={styles.container}>
+        <Text style={styles.titulo}>Contenido Multimedia</Text>
+
+        {fotos.length === 0 && videos.length === 0 && (
+          <Text style={{ textAlign: "center", marginTop: 20 }}>
+            No hay fotos ni videos asociados a este parte.
+          </Text>
+        )}
+
+        {/* FOTOS */}
+        {fotos.length > 0 && (
+          <View style={{ marginTop: 20 }}>
+            <Text style={styles.subtitulo}>Fotos</Text>
+            {fotos.map((ruta, index) => (
+              <Image
+                key={`${ruta}-${index}`}
+                source={{ uri: buildUrl(ruta) }}
+                style={styles.foto}
+              />
             ))}
           </View>
-        </View>
-      )}
+        )}
 
-      {/* VIDEOS */}
-      {parte.videos && parte.videos.length > 0 && (
-        <View>
-          <Text style={styles.seccion}>Videos</Text>
-          {parte.videos.map((v, i) => (
-            <VideoPlayerComponent key={i} uri={`${baseRuta}/${v}`} />
-          ))}
-        </View>
-      )}
-
-      {/* MODAL FOTO */}
-      <Modal visible={fotoVisible} transparent>
-        <View style={styles.modal}>
-          <TouchableOpacity
-            style={styles.cerrar}
-            onPress={() => setFotoVisible(false)}
-          >
-            <Text style={{ color: "#000", fontWeight: "bold" }}>Cerrar</Text>
-          </TouchableOpacity>
-
-          {fotoSeleccionada && (
-            <Image source={{ uri: fotoSeleccionada }} style={styles.fotoGrande} />
-          )}
-        </View>
-      </Modal>
-    </ScrollView>
+        {/* VIDEOS */}
+        {videos.length > 0 && (
+          <View style={{ marginTop: 20 }}>
+            <Text style={styles.subtitulo}>Videos</Text>
+            {videos.map((ruta, index) => (
+              <View key={`${ruta}-${index}`} style={styles.videoItem}>
+                <Text style={{ marginBottom: 4 }}>Video {index + 1}:</Text>
+                <Video
+                  source={{ uri: buildUrl(ruta) }}
+                  style={styles.video}
+                  useNativeControls
+                  resizeMode={ResizeMode.CONTAIN}  // 👈 aquí el cambio
+                  isLooping={false}
+                />
+              </View>
+            ))}
+          </View>
+        )}
+      </ScrollView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20 },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  header: { textAlign: "center", fontWeight: "bold", fontSize: 20, marginBottom: 20 },
-  seccion: { marginTop: 25, fontWeight: "bold", fontSize: 19, marginBottom: 10 },
-  fila: { flexDirection: "row", flexWrap: "wrap" },
-  fotoMini: {
-    width: 100,
-    height: 100,
-    borderRadius: 6,
-    marginRight: 10,
-    marginBottom: 10,
+  container: {
+    padding: 16,
+    paddingBottom: 40,
   },
-  video: {
-    width: "100%",
-    height: 260,
-    backgroundColor: "#000",
-    borderRadius: 6,
-    marginBottom: 20,
-  },
-  modal: {
+  center: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.9)",
     justifyContent: "center",
     alignItems: "center",
   },
-  cerrar: {
-    backgroundColor: "#fff",
-    padding: 10,
-    borderRadius: 5,
-    position: "absolute",
-    top: 40,
-    right: 20,
+  titulo: {
+    textAlign: "center",
+    fontWeight: "bold",
+    fontSize: 20,
+    marginTop: 10,
   },
-  fotoGrande: {
-    width: "90%",
-    height: "70%",
-    resizeMode: "contain",
+  subtitulo: {
+    fontWeight: "bold",
+    fontSize: 18,
+    marginBottom: 10,
+  },
+  foto: {
+    width: "100%",
+    height: 220,
+    marginBottom: 12,
+    borderRadius: 8,
+    backgroundColor: "#eee",
+    resizeMode: "cover",
+  },
+  videoItem: {
+    marginBottom: 16,
+  },
+  video: {
+    width: "100%",
+    height: 240,
+    backgroundColor: "#000",
+    borderRadius: 8,
   },
 });

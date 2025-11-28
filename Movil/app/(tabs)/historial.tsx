@@ -1,105 +1,153 @@
-import React, { useState, useCallback } from 'react';
-import { StyleSheet, FlatList, ActivityIndicator, View, Platform } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet, Platform } from 'react-native';
+import { useRouter } from 'expo-router';
 import { obtenerSesion } from '../../utils/session';
-// ⚠️ CORRECCIÓN: Nombres de archivo en minúsculas para coincidir con tu proyecto real
-import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ThemedText } from '@/components/themed-text';
 
-const API_URL = Platform.OS === 'web' 
-    ? 'http://localhost:4000/api' 
-    : 'http://10.0.2.2:4000/api';
+const API_URL = Platform.OS === 'web' ? 'http://localhost:4000/api' : 'http://10.0.2.2:4000/api';
 
 export default function HistorialScreen() {
-    const [partes, setPartes] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const router = useRouter();
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [partes, setPartes] = useState<any[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
-    const cargarHistorial = async () => {
-        try {
-            setLoading(true);
-            const { usuario, token } = await obtenerSesion();
+  const fetchPartes = async (pagina = 1) => {
+    try {
+      setLoading(true);
+      const session = await obtenerSesion();
+      if (!session?.usuario?.id) return;
 
-            if (!usuario || !usuario.id) {
-                console.log("No hay usuario logueado o falta ID");
-                return; 
-            }
+      const response = await fetch(
+        `${API_URL}/partes?usuario_id=${session.usuario.id}&page=${pagina}&limit=10`,
+        { headers: { Authorization: `Bearer ${session.token}` } }
+      );
 
-            console.log(`📡 Solicitando historial para ID: ${usuario.id}`);
+      const data = await response.json();
 
-            const response = await fetch(`${API_URL}/partes?usuario_id=${usuario.id}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+      if (response.ok) {
+        setPartes(data.partes);
+        setTotalPages(data.total_pages);
+        setPage(pagina);
+      }
+    } catch (error) {
+      console.error("Error al cargar historial:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-            const data = await response.json();
-            if (response.ok) {
-                setPartes(data.partes || []);
-            } else {
-                console.error("Error API:", data.message);
-            }
-        } catch (error) {
-            console.error("Error historial:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
+  useEffect(() => {
+    fetchPartes(1);
+  }, []);
 
-    useFocusEffect(
-        useCallback(() => {
-            cargarHistorial();
-        }, [])
-    );
+  const irAParte = (id: number) => {
+  router.push(`/parte/${id}`);
+};
+  return (
+    <ThemedView style={styles.container}>
+      <ThemedText type="title" style={styles.title}>Historial de Partes</ThemedText>
 
-    const renderItem = ({ item }: { item: any }) => (
-        <ThemedView style={styles.card}>
-            <View style={styles.cardHeader}>
-                <ThemedText type="defaultSemiBold">Parte #{item.id}</ThemedText>
-                <ThemedText style={styles.date}>{item.fecha} {item.hora}</ThemedText>
-            </View>
-            <ThemedText style={styles.sumilla}>{item.sumilla || 'Sin Asunto'}</ThemedText>
-            <ThemedText style={styles.location}>📍 {item.lugar || 'Ubicación no registrada'}</ThemedText>
-            <ThemedText style={styles.status} onPress={() => router.push(`/parte/${item.id}`)}>
-                Ver Detalles ➡
-            </ThemedText>
-        </ThemedView>
-    );
+      {loading ? (
+        <ActivityIndicator size="large" color="#0056b3" style={{ marginTop: 30 }} />
+      ) : (
+        <ScrollView style={styles.lista}>
+          {partes.map((p) => (
+            <TouchableOpacity key={p.id} style={styles.card} onPress={() => irAParte(p.id)}>
+              <Text style={styles.cardTitle}>Parte #{p.id}</Text>
+              <Text style={styles.cardText}>Físico: {p.parte_fisico}</Text>
+              <Text style={styles.cardText}>Fecha: {p.fecha}</Text>
+              <Text style={styles.cardText}>Sumilla: {p.sumilla}</Text>
+            </TouchableOpacity>
+          ))}
 
-    return (
-        <ThemedView style={styles.container}>
-            <ThemedText type="title" style={styles.title}>Mis Partes</ThemedText>
-            
-            {loading ? (
-                <ActivityIndicator size="large" color="#0056b3" style={{marginTop: 50}} />
-            ) : (
-                <FlatList
-                    data={partes}
-                    keyExtractor={(item) => item.id.toString()}
-                    renderItem={renderItem}
-                    ListEmptyComponent={<ThemedText style={styles.empty}>No hay partes registrados.</ThemedText>}
-                    contentContainerStyle={{ paddingBottom: 20 }}
-                />
-            )}
-        </ThemedView>
-    );
+          {/* PAGINACIÓN */}
+          <View style={styles.paginationContainer}>
+
+            {/* Botón Anterior */}
+            <TouchableOpacity
+              style={[styles.pageButton, page === 1 && styles.disabled]}
+              disabled={page === 1}
+              onPress={() => fetchPartes(page - 1)}
+            >
+              <Text style={styles.pageButtonText}>◀ Anterior</Text>
+            </TouchableOpacity>
+
+            {/* Botones de páginas */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 10 }}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(num => (
+                  <TouchableOpacity
+                    key={num}
+                    style={[styles.pageNumber, num === page && styles.pageActive]}
+                    onPress={() => fetchPartes(num)}
+                  >
+                    <Text style={{ color: num === page ? '#fff' : '#0056b3', fontWeight: 'bold' }}>
+                      {num}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            {/* Botón Siguiente */}
+            <TouchableOpacity
+              style={[styles.pageButton, page === totalPages && styles.disabled]}
+              disabled={page === totalPages}
+              onPress={() => fetchPartes(page + 1)}
+            >
+              <Text style={styles.pageButtonText}>Siguiente ▶</Text>
+            </TouchableOpacity>
+
+          </View>
+        </ScrollView>
+      )}
+    </ThemedView>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, padding: 20 },
-    title: { marginBottom: 20, textAlign: 'center' },
-    empty: { textAlign: 'center', marginTop: 50, color: '#999' },
-    card: {
-        backgroundColor: '#fff',
-        padding: 15,
-        borderRadius: 10,
-        marginBottom: 15,
-        elevation: 3,
-        shadowColor: '#000',
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-    },
-    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
-    date: { fontSize: 12, color: '#666' },
-    sumilla: { fontSize: 16, fontWeight: 'bold', marginBottom: 5 },
-    location: { fontSize: 14, color: '#444', marginBottom: 10 },
-    status: { color: '#0056b3', fontWeight: 'bold', textAlign: 'right' }
+  container: { flex: 1, padding: 15 },
+  title: { textAlign: 'center', marginBottom: 15 },
+  lista: { marginBottom: 20 },
+
+  card: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 12,
+    borderLeftWidth: 6,
+    borderLeftColor: '#0056b3',
+  },
+  cardTitle: { fontSize: 18, fontWeight: 'bold' },
+  cardText: { color: '#333', marginTop: 4 },
+
+  paginationContainer: {
+    marginTop: 10,
+    marginBottom: 25,
+    alignItems: 'center',
+  },
+  pageButton: {
+    padding: 10,
+    backgroundColor: '#0056b3',
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  pageButtonText: { color: '#fff', fontWeight: 'bold' },
+
+  disabled: {
+    opacity: 0.4,
+  },
+  pageNumber: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#0056b3',
+    borderRadius: 6,
+  },
+  pageActive: {
+    backgroundColor: '#0056b3',
+  }
 });

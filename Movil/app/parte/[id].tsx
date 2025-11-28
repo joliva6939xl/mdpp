@@ -1,146 +1,400 @@
-// Archivo: app/parte/[id].tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from 'react';
 import {
   View,
-  Text,
-  StyleSheet,
   ScrollView,
+  ActivityIndicator,
+  StyleSheet,
+  Text,
   TouchableOpacity,
-} from "react-native";
-import { useLocalSearchParams, Link } from "expo-router";
-import API_URL from "../../config/api";
+  Platform,
+  TextInput,
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { ThemedView } from '@/components/themed-view';
+import { ThemedText } from '@/components/themed-text';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { obtenerSesion } from '../../utils/session';
 
-type ParteDetalle = {
-  id: number;
-  sector?: string | null;
-  parte_fisico?: string | null;
-  zona?: string | null;
-  turno?: string | null;
-  lugar?: string | null;
-  fecha?: string | null;
-  hora?: string | null;
-  fecha_hora?: string | null;
-  unidad_tipo?: string | null;
-  unidad_numero?: string | null;
-  placa?: string | null;
-  conductor?: string | null;
-  dni_conductor?: string | null;
-  sumilla?: string | null;
-  asunto?: string | null;
-  ocurrencia?: string | null;
-  supervisor_zonal?: string | null;
-  supervisor_general?: string | null;
-};
+const API_URL =
+  Platform.OS === 'web'
+    ? 'http://localhost:4000/api'
+    : 'http://10.0.2.2:4000/api';
 
 export default function ParteDetalleScreen() {
-  const { id } = useLocalSearchParams();
-  const [parte, setParte] = useState<ParteDetalle | null>(null);
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+
+  const [parte, setParte] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [cerrando, setCerrando] = useState(false);
+  const [horaFinLocal, setHoraFinLocal] = useState(''); // <- aquí guardamos la hora fin que el usuario quiere
+
+  // Cargar parte desde el backend
+  const cargarParte = async () => {
+    if (!id) return;
+    setLoading(true);
+    try {
+      const session = await obtenerSesion();
+
+      const resp = await fetch(`${API_URL}/partes/${id}`, {
+        headers: {
+          Authorization: session?.token ? `Bearer ${session.token}` : '',
+        },
+      });
+
+      const data = await resp.json();
+      if (!resp.ok) {
+        console.log('❌ Error cargando parte:', data);
+        return;
+      }
+
+      const p = data.parte || data.data || data;
+      console.log('📄 Parte cargada:', p);
+      setParte(p);
+      setHoraFinLocal(p.hora_fin || ''); // si ya está cerrado, mostramos su hora; si no, vacío
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const cargar = async () => {
-      try {
-        const res = await fetch(`${API_URL}/partes/${id}`);
-        const data = await res.json();
-        if (data.ok) {
-          const parteData = data.parte || data.data || data;
-          setParte(parteData);
-        }
-      } catch (e) {
-        console.log("Error cargando parte:", e);
-      }
-    };
-
-    if (id) {
-      cargar();
-    }
+    cargarParte();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  if (!parte) {
+  const cerrado =
+    parte?.hora_fin && String(parte.hora_fin).trim().length > 0 ? true : false;
+
+  // Botón del reloj -> coloca la hora actual en horaFinLocal
+  const ponerHoraActual = () => {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const hora = `${hh}:${mm}`;
+    console.log('⏰ Hora actual usada para cierre:', hora);
+    setHoraFinLocal(hora);
+  };
+
+  // Cerrar parte usando la horaFinLocal
+  const ejecutarCerrarParte = async () => {
+    if (!parte) return;
+    if (!horaFinLocal.trim()) {
+      console.log('⚠️ No hay hora_fin para cerrar');
+      return;
+    }
+
+    setCerrando(true);
+
+    try {
+      const session = await obtenerSesion();
+
+      console.log('🔒 Enviando cierre de parte', parte.id, 'hora_fin=', horaFinLocal);
+
+      const resp = await fetch(`${API_URL}/partes/cerrar/${parte.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: session?.token ? `Bearer ${session.token}` : '',
+        },
+        body: JSON.stringify({ hora_fin: horaFinLocal }),
+      });
+
+      const data = await resp.json();
+      console.log('📥 Respuesta cierre parte:', data);
+
+      if (!resp.ok || !data.ok) {
+        console.log('❌ No se pudo cerrar el parte');
+        return;
+      }
+
+      const actualizado = data.parte || data.data || data;
+      setParte(actualizado);
+      setHoraFinLocal(actualizado.hora_fin || '');
+
+    } catch (error) {
+      console.error('❌ Error fetch cerrar parte:', error);
+    } finally {
+      setCerrando(false);
+    }
+  };
+
+  const irAMultimedia = () => {
+    if (!parte) return;
+    router.push(`/parte/multimedia/${parte.id}`);
+  };
+
+  if (loading || !parte) {
     return (
-      <View style={styles.center}>
-        <Text>Cargando parte...</Text>
-      </View>
+      <ThemedView style={styles.centered}>
+        <ActivityIndicator size="large" />
+        <ThemedText style={{ marginTop: 10 }}>Cargando parte...</ThemedText>
+      </ThemedView>
     );
   }
 
-  const fechaMostrar =
-    parte.fecha_hora ||
-    (parte.fecha && parte.hora ? `${parte.fecha} ${parte.hora}` : parte.fecha || "-");
-
-  const unidadMostrar = `${parte.unidad_tipo ?? ""} ${parte.unidad_numero ?? ""}`.trim();
-
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.header}>
-        SEGURIDAD CIUDADANA{"\n"}MUNICIPALIDAD DE PUENTE PIEDRA
-      </Text>
+    <ThemedView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* ENCABEZADO */}
+        <View style={styles.header}>
+          <ThemedText type="title" style={styles.title}>
+            Parte Virtual #{parte.id}
+          </ThemedText>
+          <ThemedText style={styles.subTitle}>
+            N° Parte Físico:{' '}
+            <Text style={styles.bold}>{parte.parte_fisico}</Text>
+          </ThemedText>
 
-      <Text style={styles.titulo}>PARTE #{parte.id}</Text>
+          <View
+            style={[
+              styles.estadoBadge,
+              cerrado ? styles.cerrado : styles.abierto,
+            ]}
+          >
+            <Text style={styles.estadoText}>
+              {cerrado ? 'CERRADO' : 'ABIERTO'}
+            </Text>
+          </View>
+        </View>
 
-      <View style={styles.box}>
-        <Text style={styles.item}>N° Parte Físico: {parte.parte_fisico || "-"}</Text>
-        <Text style={styles.item}>Sector: {parte.sector || "-"}</Text>
-        <Text style={styles.item}>Zona: {parte.zona || "-"}</Text>
-        <Text style={styles.item}>Turno: {parte.turno || "-"}</Text>
-        <Text style={styles.item}>Lugar: {parte.lugar || "-"}</Text>
-        <Text style={styles.item}>Fecha/Hora: {fechaMostrar}</Text>
+        {/* FECHA / HORAS */}
+        <View style={styles.section}>
+          <ThemedText type="subtitle" style={styles.sectionTitle}>
+            Fecha y Horas
+          </ThemedText>
+          <Row label="Fecha" value={parte.fecha} />
+          <Row label="Hora inicio" value={parte.hora || '-'} />
+          <Row
+            label="Hora fin"
+            value={parte.hora_fin || (cerrado ? '-' : 'En curso')}
+          />
 
-        <Text style={styles.item}>Unidad: {unidadMostrar || "-"}</Text>
-        <Text style={styles.item}>Placa: {parte.placa || "-"}</Text>
-        <Text style={styles.item}>Conductor: {parte.conductor || "-"}</Text>
-        <Text style={styles.item}>DNI Conductor: {parte.dni_conductor || "-"}</Text>
+          {/* Si está ABIERTO, mostramos controles para definir hora_fin */}
+          {!cerrado && (
+            <View style={{ marginTop: 10 }}>
+              <ThemedText style={styles.label}>
+                Hora de cierre (HH:MM)
+              </ThemedText>
+              <View style={styles.horaRow}>
+                <TextInput
+                  style={styles.horaInput}
+                  placeholder="Ej: 14:30"
+                  value={horaFinLocal}
+                  onChangeText={setHoraFinLocal}
+                />
+                <TouchableOpacity
+                  style={styles.btnReloj}
+                  onPress={ponerHoraActual}
+                >
+                  <IconSymbol name="clock" size={18} color="#fff" />
+                  <Text style={styles.btnRelojText}>Usar hora actual</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.horaHint}>
+                Puedes escribir la hora manual o usar el botón del reloj.
+              </Text>
+            </View>
+          )}
+        </View>
 
-        <Text style={styles.subtitulo}>Sumilla:</Text>
-        <Text style={styles.texto}>{parte.sumilla || "-"}</Text>
+        {/* UBICACIÓN / TURNO */}
+        <View className="section">
+          <ThemedText type="subtitle" style={styles.sectionTitle}>
+            Ubicación y Turno
+          </ThemedText>
+          <Row label="Sector" value={parte.sector} />
+          <Row label="Zona" value={parte.zona} />
+          <Row label="Turno" value={parte.turno} />
+          <Row label="Lugar" value={parte.lugar} />
+        </View>
 
-        <Text style={styles.subtitulo}>Asunto:</Text>
-        <Text style={styles.texto}>{parte.asunto || "-"}</Text>
+        {/* UNIDAD / CONDUCTOR */}
+        <View style={styles.section}>
+          <ThemedText type="subtitle" style={styles.sectionTitle}>
+            Unidad y Conductor
+          </ThemedText>
+          <Row label="Unidad / Tipo" value={parte.unidad_tipo} />
+          <Row label="Unidad N°" value={parte.unidad_numero} />
+          <Row label="Placa" value={parte.placa} />
+          <Row label="Conductor" value={parte.conductor} />
+          <Row label="DNI Conductor" value={parte.dni_conductor} />
+        </View>
 
-        <Text style={styles.subtitulo}>Ocurrencia:</Text>
-        <Text style={styles.texto}>{parte.ocurrencia || "-"}</Text>
+        {/* DETALLE / INCIDENCIA */}
+        <View style={styles.section}>
+          <ThemedText type="subtitle" style={styles.sectionTitle}>
+            Detalle de la Incidencia
+          </ThemedText>
+          <Row label="Incidencia" value={parte.sumilla} />
+          <Row label="Origen de atención" value={parte.asunto} />
+          <ThemedText style={styles.label}>Ocurrencia</ThemedText>
+          <ThemedText style={styles.valueBlock}>
+            {parte.ocurrencia || '-'}
+          </ThemedText>
+        </View>
 
-        <Text style={styles.subtitulo}>Supervisor Zonal:</Text>
-        <Text style={styles.texto}>{parte.supervisor_zonal || "-"}</Text>
-      </View>
+        {/* SUPERVISIÓN */}
+        <View style={styles.section}>
+          <ThemedText type="subtitle" style={styles.sectionTitle}>
+            Supervisión
+          </ThemedText>
+          <Row label="Supervisor Zonal" value={parte.supervisor_zonal} />
+          <Row label="Supervisor General" value={parte.supervisor_general} />
+        </View>
 
-      <Link href={`/parte/multimedia/${id}`} asChild>
-        <TouchableOpacity style={styles.button}>
-          <Text style={styles.buttonText}>VER CONTENIDO MULTIMEDIA</Text>
-        </TouchableOpacity>
-      </Link>
-    </ScrollView>
+        {/* BOTONES */}
+        <View style={styles.buttonsContainer}>
+          <TouchableOpacity style={styles.btnSecundario} onPress={irAMultimedia}>
+            <IconSymbol name="photo" size={18} color="#0056b3" />
+            <Text style={styles.btnSecundarioText}>
+              Ver contenido multimedia
+            </Text>
+          </TouchableOpacity>
+
+          {/* Cerrar parte solo si está ABIERTO */}
+          {!cerrado && (
+            <TouchableOpacity
+              style={[
+                styles.btnCerrar,
+                (!horaFinLocal.trim() || cerrando) && styles.btnCerrarDisabled,
+              ]}
+              onPress={ejecutarCerrarParte}
+              disabled={!horaFinLocal.trim() || cerrando}
+            >
+              {cerrando ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <IconSymbol name="lock" size={18} color="#fff" />
+                  <Text style={styles.btnCerrarText}>CERRAR PARTE</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      </ScrollView>
+    </ThemedView>
+  );
+}
+
+function Row({ label, value }: { label: string; value: any }) {
+  return (
+    <View style={styles.row}>
+      <ThemedText style={styles.label}>{label}</ThemedText>
+      <ThemedText style={styles.value}>{value || '-'}</ThemedText>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20 },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  header: { textAlign: "center", fontWeight: "bold", fontSize: 20 },
-  titulo: {
-    textAlign: "center",
-    fontWeight: "bold",
-    fontSize: 22,
-    marginVertical: 15,
+  container: { flex: 1 },
+  scrollContent: { padding: 16, paddingBottom: 40 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: {
+    marginBottom: 16,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#eef4ff',
   },
-  box: {
-    backgroundColor: "#fff",
-    padding: 15,
-    borderRadius: 6,
-    marginBottom: 20,
+  title: { textAlign: 'center', marginBottom: 6 },
+  subTitle: { textAlign: 'center', marginBottom: 8 },
+  bold: { fontWeight: 'bold' },
+  estadoBadge: {
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+    marginTop: 4,
   },
-  item: { fontSize: 16, marginBottom: 6 },
-  subtitulo: { marginTop: 10, fontWeight: "bold", fontSize: 16 },
-  texto: { fontSize: 15 },
-  button: {
-    backgroundColor: "#007bff",
-    padding: 15,
-    borderRadius: 5,
-    alignItems: "center",
-    marginTop: 20,
+  cerrado: { backgroundColor: '#d9534f' },
+  abierto: { backgroundColor: '#5cb85c' },
+  estadoText: { color: '#fff', fontWeight: 'bold' },
+  section: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#eee',
   },
-  buttonText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16,
+  sectionTitle: { marginBottom: 8, color: '#0056b3' },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  label: {
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 8,
+  },
+  value: { flex: 1, textAlign: 'right' },
+  valueBlock: { marginTop: 4, lineHeight: 18 },
+  buttonsContainer: { marginTop: 18, gap: 10 },
+  btnSecundario: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0056b3',
+    backgroundColor: '#f5f8ff',
+  },
+  btnSecundarioText: {
+    color: '#0056b3',
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  btnCerrar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#d9534f',
+  },
+  btnCerrarDisabled: {
+    opacity: 0.5,
+  },
+  btnCerrarText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  horaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 8,
+  },
+  horaInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+  },
+  btnReloj: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#0056b3',
+  },
+  btnRelojText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginLeft: 6,
+  },
+  horaHint: {
+    fontSize: 11,
+    color: '#555',
+    marginTop: 4,
   },
 });
