@@ -63,7 +63,7 @@ const actualizarFotoPerfil = async (req, res) => {
     // Si tu columna se llama distinto, luego ajustamos este nombre.
     const updateQuery = `
       UPDATE usuarios
-      SET foto = $1
+      SET foto_ruta = $1
       WHERE id = $2
       RETURNING *;
     `;
@@ -90,7 +90,7 @@ const actualizarFotoPerfil = async (req, res) => {
     return res.status(500).json({
       ok: false,
       message:
-        "Error al guardar la foto de perfil (revisa el nombre de la columna 'foto' en la tabla usuarios)",
+        "Error al guardar la foto de perfil (revisa el nombre de la columna 'foto_ruta' en la tabla usuarios)",
       error: error.message,
       fotoUrl,
     });

@@ -1,8 +1,10 @@
 // api/src/controllers/partes.controller.js
+const fs = require("fs").promises;
+const path = require("path");
 
 // Importamos la conexión a PostgreSQL
-const db = require("../config/db");
-const pool = db.pool || db;
+// Corregimos la importación para usar destructuring y evitar ambigüedades.
+const { pool } = require("../config/db");
 
 /**
  * Crear un Parte Virtual con posibles archivos adjuntos (fotos / videos).
@@ -124,34 +126,45 @@ const crearParte = async (req, res) => {
 
     console.log("✅ Parte insertado, idParte detectado para archivos:", idParte);
 
+    // --- LÓGICA PARA MOVER Y GUARDAR ARCHIVOS ---
+    // 1. Definir el directorio de destino DENTRO de la carpeta /api/uploads
+    const baseUploadDir = path.resolve(__dirname, '../../uploads');
+    const parteDir = path.join(baseUploadDir, "partes", String(idParte));
+    await fs.mkdir(parteDir, { recursive: true });
+
     const archivosGuardados = [];
 
-    // Guardar archivos en parte_archivos (si hay)
+    // 2. Mover archivos y guardar sus rutas finales en la BD
     if (req.files && req.files.length > 0) {
       console.log(`📎 Recibidos ${req.files.length} archivos de evidencia`);
 
-      // IMPORTANTE:
-      // Quitamos nombre_archivo y fecha_subida porque daban error.
-      // Dejamos parte_id, ruta_archivo, tipo_mime, tamano_bytes.
       const insertArchivoQuery = `
         INSERT INTO parte_archivos (
           parte_id,
-          ruta_archivo,
-          tipo_mime,
-          tamano_bytes
+          tipo,
+          ruta,
+          nombre_original
         )
         VALUES ($1, $2, $3, $4)
         RETURNING *;
       `;
 
       for (const file of req.files) {
-        const rutaRelativa = `uploads/evidencias/${file.filename}`;
+        // Mover el archivo de la carpeta temporal a la definitiva
+        const tempPath = file.path;
+        const newPath = path.join(parteDir, file.filename);
+        await fs.rename(tempPath, newPath);
+
+        // Guardar la ruta RELATIVA en la base de datos (ej: "partes/123/archivo.jpg")
+        const relativePath = path.join("partes", String(idParte), file.filename);
+
+        const tipoArchivo = file.mimetype.startsWith("image/") ? "foto" : "video";
 
         const archivoResult = await client.query(insertArchivoQuery, [
           idParte,
-          rutaRelativa,
-          file.mimetype,
-          file.size,
+          tipoArchivo,
+          relativePath, // Guardamos la ruta final y relativa
+          file.originalname,
         ]);
 
         archivosGuardados.push(archivoResult.rows[0]);
@@ -244,7 +257,26 @@ const obtenerParte = async (req, res) => {
   try {
     // 1) Traemos el parte
     const parteQuery = `
-      SELECT *
+      SELECT
+        id,
+        parte_fisico,
+        fecha,
+        hora,
+        sector,
+        zona,
+        turno,
+        lugar,
+        unidad_tipo,
+        unidad_numero,
+        placa,
+        conductor,
+        dni_conductor,
+        sumilla,
+        asunto,
+        ocurrencia,
+        sup_zonal AS supervisor_zonal,
+        sup_general AS supervisor_general,
+        usuario_id
       FROM partes_virtuales
       WHERE id = $1;
     `;
@@ -277,42 +309,37 @@ const obtenerParte = async (req, res) => {
 
     const archivosResult = await pool.query(archivosQuery, [idParte]);
 
-    const baseUrl = process.env.BASE_URL || "http://localhost:4000";
+    // 3) Extraemos y reparamos las rutas de los archivos
+    const mapAndFixPath = (dbRecord) => {
+      const ruta = dbRecord.ruta;
+      // Si la ruta ya es una ruta relativa correcta (ej: "partes/21/foto.jpg"), la usamos.
+      if (ruta.startsWith("partes")) {
+        return ruta;
+      }
+      // Si es una ruta absoluta antigua y corrupta (ej: "C:\\...\\evidencias\\foto.jpg"),
+      // extraemos solo el nombre del archivo.
+      const filename = path.basename(ruta);
+      // Reconstruimos la ruta correcta sabiendo que los archivos antiguos están en 'evidencias'.
+      // NOTA: Esto asume que los archivos del Parte #20 no fueron movidos y siguen en /uploads/evidencias
+      return path.join("evidencias", filename);
+    };
 
-    // 3) Armamos evidencias con URL completa y flags de tipo
-    const archivos = archivosResult.rows.map((a) => {
-      // Intentamos detectar la columna que guarda la ruta
-      const ruta =
-        a.ruta_archivo ||
-        a.ruta ||
-        a.path ||
-        a.archivo ||
-        "";
+    const fotos = archivosResult.rows
+      .filter((a) => a.tipo === "foto")
+      .map(mapAndFixPath);
 
-      // Intentamos detectar la columna de MIME
-      const mime =
-        a.tipo_mime ||
-        a.mimetype ||
-        a.mime ||
-        a.tipo ||
-        "";
+    const videos = archivosResult.rows
+      .filter((a) => a.tipo === "video")
+      .map(mapAndFixPath);
 
-      const rutaLimpia = ruta.startsWith("/") ? ruta.slice(1) : ruta;
-      const url = rutaLimpia ? `${baseUrl}/${rutaLimpia}` : null;
-
-      return {
-        ...a,
-        url,
-        esImagen: mime.startsWith("image/"),
-        esVideo: mime.startsWith("video/"),
-      };
-    });
+    // 4) Adjuntamos las listas de archivos al objeto del parte
+    parte.fotos = fotos;
+    parte.videos = videos;
 
     return res.json({
       ok: true,
-      parte,          // sup_zonal y sup_general van aquí
-      archivos,
-      evidencias: archivos,
+      parte, // Ahora el objeto 'parte' contiene las listas de fotos y videos
+      data: parte, // Mantenemos 'data' por consistencia con otras respuestas
     });
   } catch (error) {
     console.error("❌ Error al obtener parte:", error);
