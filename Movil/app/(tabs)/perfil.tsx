@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { StyleSheet, View, Text, ActivityIndicator, TouchableOpacity, Alert, Image, Platform } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { obtenerSesion, cerrarSesion } from '../utils/session';
+import { obtenerSesion, cerrarSesion } from '../../utils/session';
 import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -52,30 +52,44 @@ export default function PerfilScreen() {
     const subirFoto = async (uri: string) => {
         if (!user || !user.id) return;
         setUploading(true);
+
         try {
             const formData = new FormData();
-            const filename = uri.split('/').pop();
-            const match = /\.(\w+)$/.exec(filename || '');
-            const type = match ? `image/${match[1]}` : `image/jpeg`;
+            const filename = uri.split('/').pop() || 'photo.jpg';
+            const type = `image/${filename.split('.').pop()}`;
 
-            // @ts-ignore
-            formData.append('foto', { uri, name: filename, type });
+            if (Platform.OS === 'web') {
+                // Enfoque para la web: convertir URI a Blob
+                const response = await fetch(uri);
+                const blob = await response.blob();
+                formData.append('foto', blob, filename);
+            } else {
+                // Enfoque para móvil (React Native)
+                // @ts-ignore
+                formData.append('foto', { uri, name: filename, type });
+            }
 
             const response = await fetch(`${API_URL}/usuarios/${user.id}/foto`, {
                 method: 'PUT',
                 body: formData,
-                headers: { 'Content-Type': 'multipart/form-data' },
+                headers: {
+                    // 'Content-Type' es añadido por el navegador/cliente cuando usas FormData
+                    // pero si lo necesitas explícitamente, asegúrate de no poner un boundary
+                },
             });
 
             const json = await response.json();
+
             if (response.ok) {
-                Alert.alert("Éxito", "Foto actualizada.");
-                setUser({ ...user, foto_ruta: json.foto_ruta });
+                Alert.alert("Éxito", "Foto de perfil actualizada correctamente.");
+                setUser((currentUser: any) => ({ ...currentUser, foto_ruta: json.usuario.foto_ruta }));
             } else {
-                Alert.alert("Error", "No se pudo subir la foto.");
+                const errorMessage = json.message || "No se pudo subir la foto.";
+                Alert.alert("Error", errorMessage);
             }
-        } catch (error) {
-            Alert.alert("Error", "Fallo de conexión.");
+        } catch (error: any) {
+            console.error("Error al subir la foto:", error);
+            Alert.alert("Error de Conexión", "No se pudo conectar al servidor. Inténtalo de nuevo.");
         } finally {
             setUploading(false);
         }
@@ -89,7 +103,7 @@ export default function PerfilScreen() {
     const inicial = nombreMostrar.charAt(0).toUpperCase();
 
     const fotoUrl = userData.foto_ruta 
-        ? (userData.foto_ruta.startsWith('http') ? userData.foto_ruta : `${API_URL.replace('/api', '')}/uploads/${userData.foto_ruta}`)
+        ? (userData.foto_ruta.startsWith('http') ? userData.foto_ruta : `${API_URL.replace('/api', '')}/${userData.foto_ruta}`)
         : null;
 
     return (
