@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { StyleSheet, FlatList, ActivityIndicator, View, Platform } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { obtenerSesion } from '../utils/session';
+import { obtenerSesion } from '../../utils/session';
 // ⚠️ CORRECCIÓN: Nombres de archivo en minúsculas para coincidir con tu proyecto real
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
