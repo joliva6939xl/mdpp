@@ -40,6 +40,7 @@ CREATE TABLE partes_virtuales (
   ocurrencia TEXT,
   sup_zonal TEXT,
   sup_general TEXT,
+  participantes JSONB,
   creado_en TIMESTAMP DEFAULT NOW()
 );
 

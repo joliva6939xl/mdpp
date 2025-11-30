@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Text,
-  Alert,
   Platform,
   ActivityIndicator,
   View,
@@ -19,6 +18,7 @@ import { obtenerSesion } from '../../utils/session';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useAlert } from '../../context/GlobalAlert';
 
 const API_URL =
   Platform.OS === 'web'
@@ -38,28 +38,13 @@ const LISTAS = {
     'CHOQUE VEHICULAR',
     'USURPACION O INVASION DE TERRENO',
     'ROBO DE VEHICULOS,VIVIENDAS Y OTROS',
-    'ACTOS OBSENOS',
-    'OCCISO POR: ARMA DE FUEGO',
-    'OCSISO POR :  ARMA BLANCA',
-    'DESPISTE/VOLCADURA',
-    'ESTAFA',
-    'VEHICULOS,PERSONAS SOSPECHOSAS',
-    'RUIDOS MOLESTOS',
-    'MORDEDURA CANINA',
-    'ALTERACION DEL ORDEN PUBLICO / GRESCA',
-    'PERSONA EXTRAVIADA',
-    'DISUACION DE MERETRICES',
-    'QUEMA DE MALEZA/ ARROJO DE BASURA',
-    'ANIEGO',
-    'RETENCION DE DELINCUENTES',
-    'VIOLENCIA FAMILIAR/SEXUAL',
-    'CONSUMIDORES DE ALCHOL',
-    'INCENDIO',
-    'ATROPELLO/CAIDA DE PASAJERO',
-    'ATENCION PARAMEDICA',
-    'REFORZAMIENTO DEL PATRULLAJE',
-    'APOYO AL CONTRIBUYENTE',
-    'INICIO DE SERVICIO',
+    'VIOLENCIA FAMILIAR',
+    'PERSONAS SOSPECHOSAS',
+    'DESASTRES NATURALES',
+    'ALTERACION DEL ORDEN PUBLICO',
+    'ACCIDENTES CON MATERIALES PELIGROSOS',
+    'APOYO A EMERGENCIAS MEDICAS',
+    'OTROS NO ESPECIFICADOS',
   ],
   asunto: [
     'PATRULLAJE',
@@ -70,10 +55,18 @@ const LISTAS = {
   ],
 };
 
+type Participante = {
+  nombre: string;
+  dni: string;
+};
+
 export default function CrearParteScreen() {
   const router = useRouter();
+  const { showAlert } = useAlert();
+
   const [loading, setLoading] = useState(false);
   const [archivos, setArchivos] = useState<any[]>([]); // Fotos/Videos
+  const [participantes, setParticipantes] = useState<Participante[]>([]);
 
   const [form, setForm] = useState({
     parte_fisico: '',
@@ -100,50 +93,87 @@ export default function CrearParteScreen() {
     sup_general: '',
   });
 
-  // Estado Selectores
-  const [modalVisible, setModalVisible] = useState(false);
-  const [campoActual, setCampoActual] = useState('');
-  const [opcionesActuales, setOpcionesActuales] = useState<string[]>([]);
+  const [selectorVisible, setSelectorVisible] = useState(false);
+  const [selectorCampo, setSelectorCampo] = useState<keyof typeof form | null>(
+    null
+  );
+  const [selectorTitulo, setSelectorTitulo] = useState('');
+  const [selectorOpciones, setSelectorOpciones] = useState<string[]>([]);
 
-  const handleChange = (key: string, value: string) =>
-    setForm({ ...form, [key]: value });
-
-  const abrirSelector = (campo: string, opciones: string[]) => {
-    setCampoActual(campo);
-    setOpcionesActuales(opciones);
-    setModalVisible(true);
+  const handleChange = (key: keyof typeof form, value: string) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const seleccionar = (val: string) => {
-    handleChange(campoActual, val);
-    setModalVisible(false);
+  const abrirSelector = (
+    campo: keyof typeof form,
+    titulo: string,
+    opciones: string[]
+  ) => {
+    setSelectorCampo(campo);
+    setSelectorTitulo(titulo);
+    setSelectorOpciones(opciones);
+    setSelectorVisible(true);
+  };
+
+  const seleccionarOpcion = (val: string) => {
+    if (selectorCampo) handleChange(selectorCampo, val);
+    setSelectorVisible(false);
   };
 
   // Adjuntar evidencia (fotos / videos)
-  const adjuntarEvidencia = async () => {
+  const handleFilePick = async () => {
+    const permission =
+      Platform.OS === 'web'
+        ? { granted: true }
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      showAlert({
+        title: 'Permiso denegado',
+        message: 'Se requiere acceso a la galería para adjuntar evidencias.',
+        type: 'error',
+      });
+      return;
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsMultipleSelection: true,
+      allowsEditing: false,
       quality: 0.7,
+      allowsMultipleSelection: true,
     });
+
     if (!result.canceled) {
-      setArchivos([...archivos, ...result.assets]);
+      setArchivos((prev) => [...prev, ...result.assets]);
     }
   };
 
-  const removerArchivo = (index: number) => {
-    const nuevos = [...archivos];
-    nuevos.splice(index, 1);
-    setArchivos(nuevos);
+  // Participantes
+  const agregarParticipante = () => {
+    setParticipantes((prev) => [...prev, { nombre: '', dni: '' }]);
+  };
+
+  const cambiarParticipante = (
+    index: number,
+    campo: keyof Participante,
+    valor: string
+  ) => {
+    setParticipantes((prev) => {
+      const copia = [...prev];
+      copia[index] = { ...copia[index], [campo]: valor };
+      return copia;
+    });
   };
 
   // Enviar parte al backend
   const enviarParte = async () => {
     if (!form.parte_fisico || !form.sumilla) {
-      return Alert.alert(
-        'Faltan datos',
-        'N° Parte y la Incidencia son obligatorios.'
-      );
+      showAlert({
+        title: 'Faltan datos',
+        message: 'N° Parte y la Incidencia son obligatorios.',
+        type: 'error',
+      });
+      return;
     }
 
     setLoading(true);
@@ -152,7 +182,12 @@ export default function CrearParteScreen() {
       const session = await obtenerSesion();
       if (!session?.usuario?.id) {
         setLoading(false);
-        return Alert.alert('Error', 'Sesión inválida.');
+        showAlert({
+          title: 'Error',
+          message: 'Sesión inválida.',
+          type: 'error',
+        });
+        return;
       }
 
       // Hora inicio
@@ -163,14 +198,14 @@ export default function CrearParteScreen() {
           .slice(0, 5);
       }
 
-      // Hora fin: si la escriben, se envía; si se deja vacío, se envía null
+      // Hora fin: si la escriben, se envía; si se deja vacío, se envía vacío (backend lo pone NULL)
       let horaFin = form.hora_fin.trim();
 
       const formData = new FormData();
       formData.append('parte_fisico', form.parte_fisico);
       formData.append('fecha', form.fecha);
       formData.append('hora', horaInicio);
-      formData.append('hora_fin', horaFin); // si viene vacío, el backend lo guarda como null
+      formData.append('hora_fin', horaFin);
       formData.append('sector', form.sector);
       formData.append('zona', form.zona);
       formData.append('turno', form.turno);
@@ -181,15 +216,18 @@ export default function CrearParteScreen() {
       formData.append('conductor', form.conductor);
       formData.append('dni_conductor', form.dni_conductor);
       formData.append('sumilla', form.sumilla); // Incidencia
-      formData.append('asunto', form.asunto);   // Origen de atención
+      formData.append('asunto', form.asunto); // Origen de atención
       formData.append('ocurrencia', form.ocurrencia);
       formData.append('sup_zonal', form.sup_zonal);
       formData.append('sup_general', form.sup_general);
       formData.append('usuario_id', String(session.usuario.id));
 
+      // NUEVO: participantes (array de { nombre, dni } en JSON)
+      formData.append('participantes', JSON.stringify(participantes));
+
       // Archivos evidencia
       for (let index = 0; index < archivos.length; index++) {
-        const file = archivos[index];
+        const file: any = archivos[index];
         const isVideo = file.type === 'video';
         const tipoMime = isVideo ? 'video/mp4' : 'image/jpeg';
         const ext = isVideo ? '.mp4' : '.jpg';
@@ -220,7 +258,6 @@ export default function CrearParteScreen() {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.token}`,
-          // NO pongas Content-Type aquí, fetch lo arma solo para multipart
         },
         body: formData,
       });
@@ -228,7 +265,11 @@ export default function CrearParteScreen() {
       const data = await response.json();
 
       if (response.ok) {
-        Alert.alert('Éxito', 'Parte registrado correctamente.');
+        showAlert({
+          title: 'Éxito',
+          message: 'Parte registrado correctamente.',
+          type: 'success',
+        });
 
         // Reseteamos formulario
         setForm({
@@ -252,19 +293,37 @@ export default function CrearParteScreen() {
           sup_general: '',
         });
         setArchivos([]);
+        setParticipantes([]);
 
         // Ir al historial
         router.push('/(tabs)/historial');
       } else {
-        Alert.alert('Error', data.message || 'No se pudo guardar el parte.');
+        showAlert({
+          title: 'Error',
+          message: data.message || 'No se pudo guardar el parte.',
+          type: 'error',
+        });
       }
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'Fallo de conexión con el servidor.');
+      showAlert({
+        title: 'Error',
+        message: 'Fallo de conexión con el servidor.',
+        type: 'error',
+      });
     } finally {
       setLoading(false);
     }
   };
+
+  const renderOpcion = ({ item }: { item: string }) => (
+    <TouchableOpacity
+      style={styles.modalItem}
+      onPress={() => seleccionarOpcion(item)}
+    >
+      <Text>{item}</Text>
+    </TouchableOpacity>
+  );
 
   return (
     <ThemedView style={styles.container}>
@@ -273,6 +332,7 @@ export default function CrearParteScreen() {
           Nuevo Parte Virtual
         </ThemedText>
 
+        {/* N° Parte Físico */}
         <TextInput
           style={styles.input}
           placeholder="N° Parte Físico (*)"
@@ -280,244 +340,307 @@ export default function CrearParteScreen() {
           onChangeText={(t) => handleChange('parte_fisico', t)}
         />
 
-        {/* FECHA + HORA INICIO */}
+        {/* Fecha / Hora inicio */}
         <View style={styles.row}>
+          <View style={styles.fieldContainer}>
+            <Text style={styles.label}>Fecha</Text>
+            <TextInput
+              style={styles.input}
+              value={form.fecha}
+              onChangeText={(t) => handleChange('fecha', t)}
+            />
+          </View>
+          <View style={styles.fieldContainer}>
+            <Text style={styles.label}>Hora inicio</Text>
+            <TextInput
+              style={styles.input}
+              value={form.hora}
+              onChangeText={(t) => handleChange('hora', t)}
+            />
+          </View>
+        </View>
+
+        {/* Hora fin */}
+        <View style={styles.fieldContainer}>
+          <Text style={styles.label}>Hora fin (opcional)</Text>
           <TextInput
-            style={[styles.input, styles.half]}
-            placeholder="Fecha"
-            value={form.fecha}
-            onChangeText={(t) => handleChange('fecha', t)}
-          />
-          <TextInput
-            style={[styles.input, styles.half]}
-            placeholder="Hora inicio"
-            value={form.hora}
-            onChangeText={(t) => handleChange('hora', t)}
+            style={styles.input}
+            placeholder="HH:MM"
+            value={form.hora_fin}
+            onChangeText={(t) => handleChange('hora_fin', t)}
           />
         </View>
 
-        {/* HORA FIN */}
-        <TextInput
-          style={styles.input}
-          placeholder="Hora fin (si ya terminó la incidencia)"
-          value={form.hora_fin}
-          onChangeText={(t) => handleChange('hora_fin', t)}
-        />
-        <Text style={{ fontSize: 12, marginBottom: 10, color: '#555' }}>
-          Si dejas la hora de fin vacía, el parte se registra como ABIERTO y
-          luego podrás cerrarlo desde el detalle con el botón CERRAR PARTE.
-        </Text>
-
-        {/* SELECTORES SECTOR / ZONA / TURNO */}
+        {/* Sector / Zona */}
         <View style={styles.row}>
           <TouchableOpacity
-            style={[styles.selector, styles.half]}
-            onPress={() => abrirSelector('sector', LISTAS.sector)}
+            style={styles.selector}
+            onPress={() =>
+              abrirSelector('sector', 'Selecciona Sector', LISTAS.sector)
+            }
           >
-            <Text
-              style={form.sector ? styles.textSelected : styles.textPlaceholder}
-            >
-              {form.sector ? `Sector ${form.sector}` : 'Sector ▼'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.selector, styles.half]}
-            onPress={() => abrirSelector('zona', LISTAS.zona)}
-          >
-            <Text
-              style={form.zona ? styles.textSelected : styles.textPlaceholder}
-            >
-              {form.zona ? `Zona ${form.zona}` : 'Zona ▼'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-          style={styles.selector}
-          onPress={() => abrirSelector('turno', LISTAS.turno)}
-        >
-          <Text
-            style={form.turno ? styles.textSelected : styles.textPlaceholder}
-          >
-            {form.turno || 'Seleccionar Turno ▼'}
-          </Text>
-        </TouchableOpacity>
-
-        <TextInput
-          style={styles.input}
-          placeholder="Lugar"
-          value={form.lugar}
-          onChangeText={(t) => handleChange('lugar', t)}
-        />
-
-        <ThemedText type="subtitle" style={styles.st}>
-          Unidad
-        </ThemedText>
-        <View style={styles.row}>
-          {/* UNIDAD / TIPO -> DESPLEGABLE OMEGA / ALFA */}
-          <TouchableOpacity
-            style={[styles.selector, styles.half]}
-            onPress={() => abrirSelector('unidad_tipo', LISTAS.unidad_tipo)}
-          >
-            <Text
-              style={
-                form.unidad_tipo ? styles.textSelected : styles.textPlaceholder
-              }
-            >
-              {form.unidad_tipo || 'Unidad / Tipo ▼'}
+            <Text style={styles.label}>Sector</Text>
+            <Text style={styles.selectorText}>
+              {form.sector || 'Seleccionar'}
             </Text>
           </TouchableOpacity>
 
+          <TouchableOpacity
+            style={styles.selector}
+            onPress={() =>
+              abrirSelector('zona', 'Selecciona Zona', LISTAS.zona)
+            }
+          >
+            <Text style={styles.label}>Zona</Text>
+            <Text style={styles.selectorText}>{form.zona || 'Seleccionar'}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Turno */}
+        <TouchableOpacity
+          style={styles.selector}
+          onPress={() =>
+            abrirSelector('turno', 'Selecciona Turno', LISTAS.turno)
+          }
+        >
+          <Text style={styles.label}>Turno</Text>
+          <Text style={styles.selectorText}>
+            {form.turno || 'Seleccionar'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Lugar */}
+        <View style={styles.fieldContainer}>
+          <Text style={styles.label}>Lugar</Text>
           <TextInput
-            style={[styles.input, styles.half]}
-            placeholder="N°"
-            value={form.unidad_numero}
-            onChangeText={(t) => handleChange('unidad_numero', t)}
+            style={styles.input}
+            placeholder="Lugar del hecho"
+            value={form.lugar}
+            onChangeText={(t) => handleChange('lugar', t)}
           />
         </View>
-        <TextInput
-          style={styles.input}
-          placeholder="Placa"
-          value={form.placa}
-          onChangeText={(t) => handleChange('placa', t)}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Conductor"
-          value={form.conductor}
-          onChangeText={(t) => handleChange('conductor', t)}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="DNI Conductor"
-          keyboardType="numeric"
-          value={form.dni_conductor}
-          onChangeText={(t) => handleChange('dni_conductor', t)}
-        />
 
-        <ThemedText type="subtitle" style={styles.st}>
-          Detalle
-        </ThemedText>
-
-        {/* INCIDENCIA (sumilla) */}
-        <TouchableOpacity
-          style={styles.selector}
-          onPress={() => abrirSelector('sumilla', LISTAS.incidencia)}
-        >
-          <Text
-            style={form.sumilla ? styles.textSelected : styles.textPlaceholder}
+        {/* Unidad, Placa, Conductor */}
+        <View style={styles.row}>
+          <TouchableOpacity
+            style={styles.selector}
+            onPress={() =>
+              abrirSelector(
+                'unidad_tipo',
+                'Tipo de unidad',
+                LISTAS.unidad_tipo
+              )
+            }
           >
-            {form.sumilla || 'Incidencia ▼'}
-          </Text>
-        </TouchableOpacity>
+            <Text style={styles.label}>Tipo Unidad</Text>
+            <Text style={styles.selectorText}>
+              {form.unidad_tipo || 'Seleccionar'}
+            </Text>
+          </TouchableOpacity>
 
-        {/* ASUNTO -> ORIGEN DE ATENCIÓN */}
-        <TouchableOpacity
-          style={styles.selector}
-          onPress={() => abrirSelector('asunto', LISTAS.asunto)}
-        >
-          <Text
-            style={form.asunto ? styles.textSelected : styles.textPlaceholder}
+          <View style={styles.fieldContainer}>
+            <Text style={styles.label}>N° unidad</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="N° Unidad"
+              value={form.unidad_numero}
+              onChangeText={(t) => handleChange('unidad_numero', t)}
+            />
+          </View>
+        </View>
+
+        <View style={styles.row}>
+          <View style={styles.fieldContainer}>
+            <Text style={styles.label}>Placa</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Placa"
+              value={form.placa}
+              onChangeText={(t) => handleChange('placa', t)}
+            />
+          </View>
+
+          <View style={styles.fieldContainer}>
+            <Text style={styles.label}>Conductor</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Nombre del conductor"
+              value={form.conductor}
+              onChangeText={(t) => handleChange('conductor', t)}
+            />
+          </View>
+        </View>
+
+        <View style={styles.fieldContainer}>
+          <Text style={styles.label}>DNI Conductor</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="DNI"
+            value={form.dni_conductor}
+            onChangeText={(t) => handleChange('dni_conductor', t)}
+            keyboardType="numeric"
+          />
+        </View>
+
+        {/* 🔹 PARTICIPANTES */}
+        <View style={styles.fieldContainer}>
+          <Text style={styles.label}>Participantes (opcional)</Text>
+          <TouchableOpacity
+            style={styles.addParticipantButton}
+            onPress={agregarParticipante}
           >
-            {form.asunto || 'Origen de atención ▼'}
-          </Text>
-        </TouchableOpacity>
+            <IconSymbol name="person.2.fill" size={18} color="#fff" />
+            <Text style={styles.addParticipantButtonText}>
+              Agregar participante
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          placeholder="Ocurrencia..."
-          multiline
-          numberOfLines={4}
-          value={form.ocurrencia}
-          onChangeText={(t) => handleChange('ocurrencia', t)}
-        />
-
-        <ThemedText type="subtitle" style={styles.st}>
-          Supervisión
-        </ThemedText>
-        <TextInput
-          style={styles.input}
-          placeholder="Sup. Zonal"
-          value={form.sup_zonal}
-          onChangeText={(t) => handleChange('sup_zonal', t)}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Sup. General"
-          value={form.sup_general}
-          onChangeText={(t) => handleChange('sup_general', t)}
-        />
-
-        <ThemedText type="subtitle" style={styles.st}>
-          Evidencia
-        </ThemedText>
-        <TouchableOpacity
-          style={styles.btnEvidencia}
-          onPress={adjuntarEvidencia}
-        >
-          <IconSymbol name="paperclip" size={20} color="#fff" />
-          <Text
-            style={{
-              color: '#fff',
-              fontWeight: 'bold',
-              marginLeft: 10,
-            }}
-          >
-            FOTOS / VIDEOS
-          </Text>
-        </TouchableOpacity>
-
-        <ScrollView horizontal style={{ marginTop: 10 }}>
-          {archivos.map((f, i) => (
-            <View key={i} style={{ marginRight: 10 }}>
-              <Image
-                source={{ uri: f.uri }}
-                style={{ width: 80, height: 80, borderRadius: 8 }}
+        {participantes.map((p, index) => (
+          <View style={styles.row} key={index}>
+            <View style={styles.fieldContainer}>
+              <Text style={styles.label}>Nombres</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Nombres completos"
+                value={p.nombre}
+                onChangeText={(t) =>
+                  cambiarParticipante(index, 'nombre', t)
+                }
               />
-              <TouchableOpacity
-                onPress={() => removerArchivo(i)}
-                style={styles.btnRemove}
-              >
-                <Text style={{ color: '#fff', fontWeight: 'bold' }}>X</Text>
-              </TouchableOpacity>
             </View>
-          ))}
-        </ScrollView>
+            <View style={styles.fieldContainer}>
+              <Text style={styles.label}>DNI</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="DNI"
+                keyboardType="numeric"
+                value={p.dni}
+                onChangeText={(t) => cambiarParticipante(index, 'dni', t)}
+              />
+            </View>
+          </View>
+        ))}
 
+        {/* Incidencia (sumilla) */}
         <TouchableOpacity
-          style={styles.button}
+          style={styles.selector}
+          onPress={() =>
+            abrirSelector('sumilla', 'Selecciona Incidencia', LISTAS.incidencia)
+          }
+        >
+          <Text style={styles.label}>Incidencia (*)</Text>
+          <Text style={styles.selectorText}>
+            {form.sumilla || 'Seleccionar'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Origen de atención (asunto) */}
+        <TouchableOpacity
+          style={styles.selector}
+          onPress={() =>
+            abrirSelector('asunto', 'Origen de atención', LISTAS.asunto)
+          }
+        >
+          <Text style={styles.label}>Origen de atención</Text>
+          <Text style={styles.selectorText}>
+            {form.asunto || 'Seleccionar'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Ocurrencia (detalle) */}
+        <View style={styles.fieldContainer}>
+          <Text style={styles.label}>Detalle de ocurrencia</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            placeholder="Describe la ocurrencia"
+            value={form.ocurrencia}
+            onChangeText={(t) => handleChange('ocurrencia', t)}
+            multiline
+          />
+        </View>
+
+        {/* Supervisores */}
+        <View style={styles.fieldContainer}>
+          <Text style={styles.label}>Supervisor Zonal</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Supervisor Zonal"
+            value={form.sup_zonal}
+            onChangeText={(t) => handleChange('sup_zonal', t)}
+          />
+        </View>
+
+        <View style={styles.fieldContainer}>
+          <Text style={styles.label}>Supervisor General</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Supervisor General"
+            value={form.sup_general}
+            onChangeText={(t) => handleChange('sup_general', t)}
+          />
+        </View>
+
+        {/* Adjuntar evidencias */}
+        <View style={styles.fieldContainer}>
+          <Text style={styles.label}>Evidencias (fotos / videos)</Text>
+          <TouchableOpacity
+            style={styles.addFileButton}
+            onPress={handleFilePick}
+          >
+            <IconSymbol name="photo" size={20} color="#fff" />
+            <Text style={styles.addFileButtonText}>Agregar evidencia</Text>
+          </TouchableOpacity>
+
+          {archivos.length > 0 && (
+            <ScrollView horizontal style={styles.previewContainer}>
+              {archivos.map((file, index) => (
+                <View key={index} style={styles.previewItem}>
+                  <Image
+                    source={{ uri: file.uri }}
+                    style={styles.previewImage}
+                  />
+                  <Text style={styles.previewLabel}>
+                    {file.type === 'video' ? 'Video' : 'Foto'} {index + 1}
+                  </Text>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* Botón Guardar */}
+        <TouchableOpacity
+          style={styles.submitButton}
           onPress={enviarParte}
           disabled={loading}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.buttonText}>REGISTRAR PARTE</Text>
+            <Text style={styles.submitButtonText}>Guardar Parte</Text>
           )}
         </TouchableOpacity>
       </ScrollView>
 
-      <Modal visible={modalVisible} transparent animationType="fade">
+      {/* Modal selector */}
+      <Modal
+        visible={selectorVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectorVisible(false)}
+      >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              Seleccionar {campoActual.toUpperCase()}
-            </Text>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>{selectorTitulo}</Text>
             <FlatList
-              data={opcionesActuales}
-              keyExtractor={(i) => i}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.modalItem}
-                  onPress={() => seleccionar(item)}
-                >
-                  <Text>{item}</Text>
-                </TouchableOpacity>
-              )}
+              data={selectorOpciones}
+              keyExtractor={(item) => item}
+              renderItem={renderOpcion}
             />
             <TouchableOpacity
               style={styles.closeBtn}
-              onPress={() => setModalVisible(false)}
+              onPress={() => setSelectorVisible(false)}
             >
               <Text style={{ color: '#fff' }}>Cerrar</Text>
             </TouchableOpacity>
@@ -529,76 +652,123 @@ export default function CrearParteScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 50 },
-  title: { textAlign: 'center', marginBottom: 20 },
-  st: { marginTop: 15, marginBottom: 5, color: '#0056b3' },
+  container: { flex: 1, padding: 16 },
+  scrollContent: { paddingBottom: 40 },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  fieldContainer: {
+    marginBottom: 12,
+    flex: 1,
+  },
+  label: {
+    fontWeight: '600',
+    marginBottom: 4,
+  },
   input: {
-    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 10,
+    borderColor: '#ddd',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+  },
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
   },
   selector: {
-    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 10,
-    justifyContent: 'center',
+    borderColor: '#ddd',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    marginBottom: 12,
+    flex: 1,
   },
-  textPlaceholder: { color: '#999' },
-  textSelected: { color: '#000' },
-  row: { flexDirection: 'row', gap: 10 },
-  half: { flex: 1 },
-  textArea: { height: 100, textAlignVertical: 'top' },
-  button: {
-    backgroundColor: '#0056b3',
-    padding: 15,
-    borderRadius: 8,
+  selectorText: {
+    marginTop: 4,
+    color: '#555',
+  },
+  addFileButton: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 20,
+    backgroundColor: '#007bff',
+    padding: 10,
+    borderRadius: 6,
+    gap: 8,
+    marginTop: 4,
   },
-  buttonText: { color: '#fff', fontWeight: 'bold' },
-  btnEvidencia: {
+  addFileButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  previewContainer: {
+    marginTop: 10,
+  },
+  previewItem: {
+    marginRight: 10,
+    alignItems: 'center',
+  },
+  previewImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+  },
+  previewLabel: {
+    marginTop: 4,
+    fontSize: 12,
+  },
+  submitButton: {
+    marginTop: 20,
     backgroundColor: '#28a745',
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  submitButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  // Participantes
+  addParticipantButton: {
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#6b21a8',
+    padding: 10,
+    borderRadius: 6,
+    gap: 8,
+    marginTop: 4,
   },
-  btnRemove: {
-    position: 'absolute',
-    top: -5,
-    right: -5,
-    backgroundColor: 'red',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+  addParticipantButtonText: {
+    color: '#fff',
+    fontWeight: '600',
   },
+  // Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.35)',
     justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    width: '80%',
-    backgroundColor: '#fff',
-    borderRadius: 10,
     padding: 20,
-    maxHeight: '60%',
+  },
+  modalContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 15,
+    maxHeight: '70%',
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 15,
+    fontWeight: '700',
+    marginBottom: 10,
     textAlign: 'center',
   },
   modalItem: {

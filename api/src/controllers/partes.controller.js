@@ -9,7 +9,7 @@ const pool = db.pool || db;
 // =============================
 // CREAR PARTE VIRTUAL
 // =============================
-// FUNCIÓN PARA CREAR PARTE VIRTUAL (con hora_inicio / hora_fin y evidencia)
+// FUNCIÓN PARA CREAR PARTE VIRTUAL (con hora_inicio / hora_fin, evidencia y participantes)
 const crearParte = async (req, res) => {
   console.log("📥 Creando Parte Virtual...");
   console.log("👉 Body recibido en crearParte:", req.body);
@@ -37,12 +37,12 @@ const crearParte = async (req, res) => {
     sup_zonal,
     sup_general,
     usuario_id,
+    participantes, // NUEVO: viene como string JSON o array
   } = req.body;
 
   try {
     await client.query("BEGIN");
 
-    // 1. INSERTAR PARTE (obtenemos ID)
     const insertParteQuery = `
       INSERT INTO partes_virtuales (
         parte_fisico,
@@ -63,16 +63,37 @@ const crearParte = async (req, res) => {
         ocurrencia,
         sup_zonal,
         sup_general,
+        participantes,
         usuario_id
       ) VALUES (
         $1,  $2,  $3,  $4,
         $5,  $6,  $7,  $8,
         $9,  $10, $11, $12,
         $13, $14, $15, $16,
-        $17, $18, $19
+        $17, $18, $19, $20
       )
       RETURNING id;
     `;
+
+    // Normalizamos participantes a JSON válido o NULL
+    let participantesValue = null;
+    if (participantes) {
+      try {
+        const parsed =
+          typeof participantes === "string"
+            ? JSON.parse(participantes)
+            : participantes;
+
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          participantesValue = JSON.stringify(parsed); // se castea a jsonb en Postgres
+        }
+      } catch (e) {
+        console.warn(
+          "⚠️ participantes no es JSON válido, se guarda como NULL:",
+          participantes
+        );
+      }
+    }
 
     const valuesParte = [
       parte_fisico,
@@ -93,6 +114,7 @@ const crearParte = async (req, res) => {
       ocurrencia,
       sup_zonal,
       sup_general,
+      participantesValue,
       usuario_id,
     ];
 
@@ -120,9 +142,7 @@ const crearParte = async (req, res) => {
         const oldPath = file.path; // ruta temporal
         const newPath = path.join(carpetaParte, file.filename);
 
-        // Copiamos y luego borramos el temporal (para evitar EPERM en Windows)
-        fs.copyFileSync(oldPath, newPath);
-        fs.unlinkSync(oldPath);
+        fs.renameSync(oldPath, newPath);
 
         // ruta relativa que usará el frontend: /uploads/partes/<id>/<archivo>
         const rutaRelativa = path
@@ -138,35 +158,32 @@ const crearParte = async (req, res) => {
           `
           INSERT INTO parte_archivos (parte_id, tipo, ruta, nombre_original)
           VALUES ($1, $2, $3, $4)
-        `,
-          [parteId, tipo, rutaRelativa, file.originalname]
+          `,
+          [parteId, tipo, rutaRelativa, file.originalname || file.filename]
         );
       }
-    } else {
-      console.log("ℹ️ No se recibieron archivos de evidencia en req.files");
     }
 
     await client.query("COMMIT");
 
-    return res.status(201).json({
+    return res.json({
       ok: true,
-      message: "Parte registrado y archivos organizados",
+      message: "Parte virtual creado correctamente",
       id: parteId,
     });
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error("❌ ERROR CRÍTICO AL CREAR PARTE (DB/FS):", error);
+    await client.query("ROLLBACK");
+    console.error("❌ Error al crear parte virtual:", error);
 
     return res.status(500).json({
       ok: false,
-      message: "Fallo interno al crear el parte",
-      details: error.message,
+      message: "Error interno al crear parte virtual",
+      error: error.message,
     });
   } finally {
     client.release();
   }
 };
-
 // =============================
 // LISTAR PARTES (paginado, más nuevos primero)
 // =============================
@@ -244,7 +261,7 @@ const obtenerParte = async (req, res) => {
 
   try {
     const parteQuery = `
-      SELECT
+     SELECT
         id,
         parte_fisico,
         fecha,
@@ -264,6 +281,7 @@ const obtenerParte = async (req, res) => {
         ocurrencia,
         sup_zonal AS supervisor_zonal,
         sup_general AS supervisor_general,
+        participantes,
         usuario_id
       FROM partes_virtuales
       WHERE id = $1;
@@ -280,6 +298,24 @@ const obtenerParte = async (req, res) => {
 
     const parte = parteResult.rows[0];
     const parteId = parte.id;
+
+    // Normalizar participantes en el detalle
+    if (parte.participantes) {
+      if (typeof parte.participantes === "string") {
+        try {
+          const parsed = JSON.parse(parte.participantes);
+          parte.participantes = Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          console.warn(
+            "⚠️ participantes con formato inesperado en parte",
+            parteId
+          );
+          parte.participantes = [];
+        }
+      }
+    } else {
+      parte.participantes = [];
+    }
 
     const archivosQuery = `
       SELECT id, parte_id, tipo, ruta, nombre_original, creado_en

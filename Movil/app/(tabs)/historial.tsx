@@ -1,11 +1,22 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  StyleSheet,
+  Platform,
+} from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { obtenerSesion } from '../../utils/session';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 
-const API_URL = Platform.OS === 'web' ? 'http://localhost:4000/api' : 'http://10.0.2.2:4000/api';
+const API_URL =
+  Platform.OS === 'web'
+    ? 'http://localhost:4000/api'
+    : 'http://10.0.2.2:4000/api';
 
 export default function HistorialScreen() {
   const router = useRouter();
@@ -33,39 +44,90 @@ export default function HistorialScreen() {
         setPage(pagina);
       }
     } catch (error) {
-      console.error("Error al cargar historial:", error);
+      console.error('Error al cargar historial:', error);
     } finally {
       setLoading(false);
     }
   };
 
+  // Carga inicial
   useEffect(() => {
     fetchPartes(1);
   }, []);
 
+  // Refrescar cada vez que la pestaña gana foco (por ejemplo al volver de crear un parte)
+  useFocusEffect(
+    useCallback(() => {
+      fetchPartes(1);
+      return () => {};
+    }, [])
+  );
+
   const irAParte = (id: number) => {
-  router.push(`/parte/${id}`);
-};
+    router.push(`/parte/${id}`);
+  };
+
+  const renderParticipantesLinea = (raw: any): string => {
+    try {
+      let arr: any[] = [];
+
+      if (Array.isArray(raw)) {
+        arr = raw;
+      } else if (typeof raw === 'string' && raw.trim() !== '') {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) arr = parsed;
+      }
+
+      if (!arr || arr.length === 0) return '';
+
+      return arr
+        .map((pt: any) =>
+          pt?.nombre && pt?.dni
+            ? `${pt.nombre} (${pt.dni})`
+            : pt?.nombre || pt?.dni || ''
+        )
+        .filter(Boolean)
+        .join(', ');
+    } catch {
+      return '';
+    }
+  };
+
   return (
     <ThemedView style={styles.container}>
-      <ThemedText type="title" style={styles.title}>Historial de Partes</ThemedText>
+      <ThemedText type="title" style={styles.title}>
+        Historial de Partes
+      </ThemedText>
 
       {loading ? (
         <ActivityIndicator size="large" color="#0056b3" style={{ marginTop: 30 }} />
       ) : (
         <ScrollView style={styles.lista}>
-          {partes.map((p) => (
-            <TouchableOpacity key={p.id} style={styles.card} onPress={() => irAParte(p.id)}>
-              <Text style={styles.cardTitle}>Parte #{p.id}</Text>
-              <Text style={styles.cardText}>Físico: {p.parte_fisico}</Text>
-              <Text style={styles.cardText}>Fecha: {p.fecha}</Text>
-              <Text style={styles.cardText}>Sumilla: {p.sumilla}</Text>
-            </TouchableOpacity>
-          ))}
+          {partes.map((p) => {
+            const participantesLinea = renderParticipantesLinea(p.participantes);
+
+            return (
+              <TouchableOpacity
+                key={p.id}
+                style={styles.card}
+                onPress={() => irAParte(p.id)}
+              >
+                <Text style={styles.cardTitle}>Parte #{p.id}</Text>
+                <Text style={styles.cardText}>Físico: {p.parte_fisico}</Text>
+                <Text style={styles.cardText}>Fecha: {p.fecha}</Text>
+                <Text style={styles.cardText}>Sumilla: {p.sumilla}</Text>
+
+                {participantesLinea !== '' && (
+                  <Text style={styles.cardTextSmall}>
+                    Participantes: {participantesLinea}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
 
           {/* PAGINACIÓN */}
           <View style={styles.paginationContainer}>
-
             {/* Botón Anterior */}
             <TouchableOpacity
               style={[styles.pageButton, page === 1 && styles.disabled]}
@@ -76,15 +138,27 @@ export default function HistorialScreen() {
             </TouchableOpacity>
 
             {/* Botones de páginas */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 10 }}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ marginVertical: 10 }}
+            >
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(num => (
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((num) => (
                   <TouchableOpacity
                     key={num}
-                    style={[styles.pageNumber, num === page && styles.pageActive]}
+                    style={[
+                      styles.pageNumber,
+                      num === page && styles.pageActive,
+                    ]}
                     onPress={() => fetchPartes(num)}
                   >
-                    <Text style={{ color: num === page ? '#fff' : '#0056b3', fontWeight: 'bold' }}>
+                    <Text
+                      style={{
+                        color: num === page ? '#fff' : '#0056b3',
+                        fontWeight: 'bold',
+                      }}
+                    >
                       {num}
                     </Text>
                   </TouchableOpacity>
@@ -100,7 +174,6 @@ export default function HistorialScreen() {
             >
               <Text style={styles.pageButtonText}>Siguiente ▶</Text>
             </TouchableOpacity>
-
           </View>
         </ScrollView>
       )}
@@ -123,6 +196,11 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 18, fontWeight: 'bold' },
   cardText: { color: '#333', marginTop: 4 },
+  cardTextSmall: {
+    color: '#555',
+    marginTop: 4,
+    fontSize: 12,
+  },
 
   paginationContainer: {
     marginTop: 10,
@@ -149,5 +227,5 @@ const styles = StyleSheet.create({
   },
   pageActive: {
     backgroundColor: '#0056b3',
-  }
+  },
 });

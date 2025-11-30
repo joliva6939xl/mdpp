@@ -20,6 +20,28 @@ const API_URL =
     ? 'http://localhost:4000/api'
     : 'http://10.0.2.2:4000/api';
 
+type Participante = {
+  nombre?: string;
+  dni?: string;
+};
+
+const normalizarParticipantes = (raw: any): Participante[] => {
+  try {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw as Participante[];
+    if (typeof raw === 'string') {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as Participante[]) : [];
+    }
+    if (typeof raw === 'object') {
+      return Array.isArray(raw) ? (raw as Participante[]) : [];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+};
+
 export default function ParteDetalleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -27,7 +49,7 @@ export default function ParteDetalleScreen() {
   const [parte, setParte] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [cerrando, setCerrando] = useState(false);
-  const [horaFinLocal, setHoraFinLocal] = useState(''); // <- aquí guardamos la hora fin que el usuario quiere
+  const [horaFinLocal, setHoraFinLocal] = useState(''); // aquí guardamos la hora fin que el usuario quiere
 
   // Cargar parte desde el backend
   const cargarParte = async () => {
@@ -48,7 +70,9 @@ export default function ParteDetalleScreen() {
         return;
       }
 
-      const p = data.parte || data.data || data;
+      const base = data.parte || data.data || data;
+      const participantesNorm = normalizarParticipantes(base.participantes);
+      const p = { ...base, participantes: participantesNorm };
       console.log('📄 Parte cargada:', p);
       setParte(p);
       setHoraFinLocal(p.hora_fin || ''); // si ya está cerrado, mostramos su hora; si no, vacío
@@ -109,10 +133,11 @@ export default function ParteDetalleScreen() {
         return;
       }
 
-      const actualizado = data.parte || data.data || data;
+      const base = data.parte || data.data || data;
+      const participantesNorm = normalizarParticipantes(base.participantes);
+      const actualizado: any = { ...base, participantes: participantesNorm };
       setParte(actualizado);
       setHoraFinLocal(actualizado.hora_fin || '');
-
     } catch (error) {
       console.error('❌ Error fetch cerrar parte:', error);
     } finally {
@@ -220,6 +245,29 @@ export default function ParteDetalleScreen() {
           <Row label="Placa" value={parte.placa} />
           <Row label="Conductor" value={parte.conductor} />
           <Row label="DNI Conductor" value={parte.dni_conductor} />
+
+          {parte.participantes &&
+            Array.isArray(parte.participantes) &&
+            parte.participantes.length > 0 && (
+              <>
+                <ThemedText style={styles.participantesHeader}>
+                  SERENO OPERADOR PARTICIPANTE
+                </ThemedText>
+                {parte.participantes.map((pt: any, index: number) => (
+                  <View key={index} style={styles.participanteRow}>
+                    <Text style={styles.participanteBullet}>{index + 1}.</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.participanteNombre}>
+                        {pt?.nombre || '-'}
+                      </Text>
+                      <Text style={styles.participanteDni}>
+                        DNI: {pt?.dni || '-'}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </>
+            )}
         </View>
 
         {/* DETALLE / INCIDENCIA */}
@@ -260,8 +308,8 @@ export default function ParteDetalleScreen() {
                 styles.btnCerrar,
                 (!horaFinLocal.trim() || cerrando) && styles.btnCerrarDisabled,
               ]}
-              onPress={ejecutarCerrarParte}
               disabled={!horaFinLocal.trim() || cerrando}
+              onPress={ejecutarCerrarParte}
             >
               {cerrando ? (
                 <ActivityIndicator color="#fff" />
@@ -332,6 +380,28 @@ const styles = StyleSheet.create({
   },
   value: { flex: 1, textAlign: 'right' },
   valueBlock: { marginTop: 4, lineHeight: 18 },
+
+  participantesHeader: {
+    marginTop: 8,
+    fontWeight: '600',
+  },
+  participanteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  participanteBullet: {
+    marginRight: 6,
+    color: '#555',
+  },
+  participanteNombre: {
+    fontWeight: '500',
+  },
+  participanteDni: {
+    fontSize: 12,
+    color: '#555',
+  },
+
   buttonsContainer: { marginTop: 18, gap: 10 },
   btnSecundario: {
     flexDirection: 'row',
