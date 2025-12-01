@@ -2,9 +2,16 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import ControlPanel from "../components/ControlPanel";
+import {
+  obtenerUsuariosSistema,
+  eliminarUsuariosSeleccionados,
+  bloqueoUsuarios,
+  obtenerPartePorIdAdmin,
+  obtenerUsuarioDetallesAdmin,
+  obtenerUsuarioPartesAdmin,
+} from "../services/adminService";
 
 const BASE_URL = "http://localhost:4000";
-const API_URL = `${BASE_URL}/api`;
 
 // Normaliza rutas para imágenes / videos
 const getFotoUrl = (ruta: string) => {
@@ -23,8 +30,6 @@ const getFotoUrl = (ruta: string) => {
   return `${BASE_URL}/uploads/${normalized}`;
 };
 
-// --- INTERFACES ---
-
 interface UsuarioSistema {
   id: number;
   nombre_usuario?: string;
@@ -42,7 +47,8 @@ interface UsuarioSistema {
 interface UserDetails extends UsuarioSistema {
   celular?: string;
   cargo?: string;
-  foto_ruta?: string;
+  direccion?: string;
+  correo?: string;
 }
 
 interface ParteArchivo {
@@ -96,11 +102,6 @@ interface ParteVirtual {
   creado_en?: string;
   fotos?: ParteArchivo[];
   videos?: ParteArchivo[];
-
-  // Participantes
-  participantes?: { nombre: string; dni: string }[];
-  participantes_texto?: string;
-  serenos_participantes?: string;
 }
 
 export default function Profile() {
@@ -130,7 +131,7 @@ export default function Profile() {
   // Detalle de parte
   const [selectedParteDetail, setSelectedParteDetail] =
     useState<ParteVirtual | null>(null);
-  const [parteDetailTab, setParteDetailTab] = useState<"INFO" | "MEDIA">(
+  const [parteDetailTab, setParteDetailTab] = useState<"INFO" | "MULTIMEDIA">(
     "INFO"
   );
 
@@ -144,22 +145,18 @@ export default function Profile() {
     setCargandoTabla(true);
     setSelectedUserIds([]);
     try {
-      const endpoint =
-        vistaActual === "APP" ? "/admin/usuarios-app" : "/admin/usuarios-admin";
+      const { resp, json } = await obtenerUsuariosSistema(vistaActual);
 
-      const resp = await fetch(`${API_URL}${endpoint}`);
-      const json = await resp.json();
-
-      if (json.ok) {
-        const usuariosConTipo: UsuarioSistema[] = json.usuarios.map(
-          (u: Omit<UsuarioSistema, "tipo_tabla">) => ({
-            ...u,
+      if (resp.ok && json.ok) {
+        const usuariosConTipo: UsuarioSistema[] = (json.usuarios || []).map(
+          (u) => ({
+            ...(u as Omit<UsuarioSistema, "tipo_tabla">),
             tipo_tabla: vistaActual,
           })
         );
         setListaUsuarios(usuariosConTipo);
       } else {
-        alert("Error obteniendo usuarios: " + json.message);
+        alert("Error obteniendo usuarios: " + (json.message || ""));
       }
     } catch (error) {
       console.error(error);
@@ -173,13 +170,32 @@ export default function Profile() {
     fetchUsuarios();
   }, [fetchUsuarios]);
 
-  // --- LOGOUT ---
   const handleLogout = () => {
-    localStorage.removeItem("adminToken");
-    navigate("/");
+    navigate("/login");
   };
 
-  // --- ELIMINAR USUARIOS ---
+  const handleBack = () => {
+    navigate("/login");
+  };
+
+  const handleUserTargetChange = (value: "APP" | "ADMIN") => {
+    setVistaActual(value);
+    setSelectedUserIds([]);
+    setIsSelectionModeActive(false);
+    setCurrentMode("NONE");
+  };
+
+  const handleSelectModeChange = (mode: "DELETE" | "BLOCK" | "NONE") => {
+    if (mode === "NONE") {
+      setIsSelectionModeActive(false);
+      setCurrentMode("NONE");
+      setSelectedUserIds([]);
+      return;
+    }
+    setIsSelectionModeActive(true);
+    setCurrentMode(mode);
+  };
+
   const handleDeleteUsers = async () => {
     if (selectedUserIds.length === 0) {
       alert("No hay usuarios seleccionados.");
@@ -194,22 +210,19 @@ export default function Profile() {
       return;
 
     try {
-      const resp = await fetch(`${API_URL}/admin/usuarios`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          users: selectedUserIds.map((id) => {
-            const user = listaUsuarios.find((u) => u.id === id);
-            return { id, tipo: user?.tipo_tabla || "APP" };
-          }),
-        }),
+      const usersPayload = selectedUserIds.map((id) => {
+        const user = listaUsuarios.find((u) => u.id === id);
+        return { id, tipo: user?.tipo_tabla || "APP" };
       });
-      const json = await resp.json();
-      if (json.ok) {
+
+      const { resp, json } = await eliminarUsuariosSeleccionados(usersPayload);
+
+      if (resp.ok && json.ok) {
         alert("Usuarios eliminados correctamente.");
         fetchUsuarios();
+        setSelectedUserIds([]);
       } else {
-        alert(`Error: ${json.message}`);
+        alert("Error eliminando usuarios: " + (json.message || ""));
       }
     } catch (error) {
       console.error(error);
@@ -217,14 +230,16 @@ export default function Profile() {
     }
   };
 
-  // --- ABRIR MODAL BLOQUEO ---
+  // --- ABRIR MODAL DE BLOQUEO ---
   const handleOpenBlockModal = () => {
-    if (selectedUserIds.length === 0) return;
+    if (selectedUserIds.length === 0) {
+      alert("No hay usuarios seleccionados.");
+      return;
+    }
     setBlockReason("");
     setShowBlockModal(true);
   };
 
-  // --- APLICAR BLOQUEO / DESBLOQUEO ---
   const handleExecuteBlock = async (accion: "BLOQUEAR" | "DESBLOQUEAR") => {
     if (accion === "BLOQUEAR" && !blockReason.trim()) {
       alert("Por favor escribe un motivo (Ej: Vacaciones).");
@@ -238,18 +253,13 @@ export default function Profile() {
         return { id, tipo: user?.tipo_tabla || "APP" };
       });
 
-      const resp = await fetch(`${API_URL}/admin/usuarios/bloqueo`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          users: usersPayload,
-          accion,
-          motivo: blockReason,
-        }),
-      });
+      const { resp, json } = await bloqueoUsuarios(
+        usersPayload,
+        accion,
+        blockReason
+      );
 
-      const json = await resp.json();
-      if (json.ok) {
+      if (resp.ok && json.ok) {
         alert(
           accion === "BLOQUEAR"
             ? "Usuarios bloqueados correctamente."
@@ -258,7 +268,7 @@ export default function Profile() {
         setShowBlockModal(false);
         fetchUsuarios();
       } else {
-        alert(`Error: ${json.message}`);
+        alert(`Error: ${json.message || "No se pudo aplicar la acción."}`);
       }
     } catch (error) {
       console.error(error);
@@ -269,18 +279,6 @@ export default function Profile() {
   };
 
   // --- MODO SELECCIÓN ---
-  const handleToggleSelectionMode = (mode: "DELETE" | "BLOCK") => {
-    if (currentMode === mode) {
-      setIsSelectionModeActive(false);
-      setCurrentMode("NONE");
-      setSelectedUserIds([]);
-    } else {
-      setIsSelectionModeActive(true);
-      setCurrentMode(mode);
-      setSelectedUserIds([]);
-    }
-  };
-
   const toggleSelect = (id: number) => {
     setSelectedUserIds((prev) =>
       prev.includes(id) ? prev.filter((uid) => uid !== id) : [...prev, id]
@@ -291,21 +289,26 @@ export default function Profile() {
   const handleParteClick = async (parteId: number) => {
     setLoadingModal(true);
     try {
-      const resp = await fetch(`${API_URL}/partes/${parteId}`);
-      const json = await resp.json();
+      const { resp, json } = await obtenerPartePorIdAdmin(parteId);
 
       if (!resp.ok || json.ok === false) {
         alert(`Error: ${json.message || "No se pudo obtener el parte."}`);
         return;
       }
 
-      const baseParte =
+      const rawBase =
         json.parte ||
         json.data ||
         json.parteVirtual ||
         json.parte_detalle ||
-        json.detalle ||
-        json;
+        json.detalle;
+
+      if (!rawBase) {
+        alert("No se encontraron datos del parte.");
+        return;
+      }
+
+      const baseParte = rawBase as unknown as ParteVirtual;
 
       const origenArchivos =
         json.archivos ||
@@ -313,8 +316,8 @@ export default function Profile() {
         json.multimedia ||
         json.archivos_parte ||
         json.parte_archivos ||
-        baseParte.archivos ||
-        baseParte.media ||
+        (baseParte as { archivos?: RawArchivoParte[] }).archivos ||
+        (baseParte as { media?: RawArchivoParte[] }).media ||
         [];
 
       const archivosCrudos: RawArchivoParte[] = Array.isArray(origenArchivos)
@@ -322,14 +325,14 @@ export default function Profile() {
         : [];
 
       let fotos: ParteArchivo[] = Array.isArray(
-        (baseParte as ParteVirtual).fotos
+        (baseParte as { fotos?: ParteArchivo[] }).fotos
       )
-        ? ((baseParte as ParteVirtual).fotos as ParteArchivo[])
+        ? ((baseParte as { fotos?: ParteArchivo[] }).fotos as ParteArchivo[])
         : [];
       let videos: ParteArchivo[] = Array.isArray(
-        (baseParte as ParteVirtual).videos
+        (baseParte as { videos?: ParteArchivo[] }).videos
       )
-        ? ((baseParte as ParteVirtual).videos as ParteArchivo[])
+        ? ((baseParte as { videos?: ParteArchivo[] }).videos as ParteArchivo[])
         : [];
 
       if (archivosCrudos.length > 0) {
@@ -339,7 +342,7 @@ export default function Profile() {
             a.tipo_archivo ||
             a.tipo_media ||
             ""
-          ).toLowerCase();
+          )?.toLowerCase() as string;
 
           const ruta =
             a.ruta ||
@@ -358,14 +361,16 @@ export default function Profile() {
 
           const esVideo =
             tipoRaw.includes("video") ||
-            /\.(mp4|mov|avi|mkv|webm|3gp)$/i.test(ruta);
+            ruta.toLowerCase().endsWith(".mp4") ||
+            ruta.toLowerCase().endsWith(".mov") ||
+            ruta.toLowerCase().endsWith(".avi");
 
           const tipo: "foto" | "video" = esVideo ? "video" : "foto";
 
           return {
             id: a.id ?? idx + 1,
             tipo,
-            ruta,
+            ruta: getFotoUrl(ruta),
             nombre_original: nombre,
           };
         });
@@ -382,7 +387,7 @@ export default function Profile() {
       }
 
       const parteConMultimedia: ParteVirtual = {
-        ...(baseParte as ParteVirtual),
+        ...baseParte,
         fotos,
         videos,
       };
@@ -412,34 +417,32 @@ export default function Profile() {
     setLoadingModal(true);
 
     try {
-      const detailResp = await fetch(
-        `${API_URL}/admin/usuario-details/${user.id}`
-      );
-      const detailJson = await detailResp.json();
+      const { resp: detailResp, json: detailJson } =
+        await obtenerUsuarioDetallesAdmin(user.id);
+
       if (detailResp.ok) {
-        setUserDetails(
-          (detailJson.user ||
-            detailJson.usuario ||
-            detailJson.data ||
-            detailJson) as UserDetails
-        );
+        const rawUser =
+          detailJson.user || detailJson.usuario || detailJson.data;
+
+        if (rawUser) {
+          setUserDetails(rawUser as unknown as UserDetails);
+        }
       }
 
       if (user.tipo_tabla === "APP") {
-        const partesResp = await fetch(
-          `${API_URL}/admin/usuario-partes/${user.id}`
-        );
-        const partesJson = await partesResp.json();
+        const { resp: partesResp, json: partesJson } =
+          await obtenerUsuarioPartesAdmin(user.id);
 
         if (partesResp.ok) {
-          const lista =
+          const listaRaw =
             partesJson.partes ||
             partesJson.data ||
             partesJson.rows ||
             partesJson.lista ||
-            partesJson;
+            [];
 
-          setUsuarioPartes(lista as ParteVirtual[]);
+          const lista = listaRaw as unknown as ParteVirtual[];
+          setUsuarioPartes(lista);
         } else {
           console.warn("No se pudieron cargar partes:", partesJson);
         }
@@ -458,937 +461,656 @@ export default function Profile() {
       flexDirection: "column",
       alignItems: "center",
       minHeight: "100vh",
-      backgroundColor: "#f0f2f5",
-      padding: "20px 0",
+      backgroundColor: "#f4f4f4",
+      fontFamily: "Arial, sans-serif",
     },
-    header: {
-      width: "100%",
-      maxWidth: "1000px",
-      margin: "0 auto 10px auto",
-      padding: "0 20px",
-      borderBottom: "1px solid #ccc",
-      marginBottom: "20px",
-    },
-    topBar: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      width: "100%",
-    },
-    title: { color: "#0066cc", margin: "10px 0 0 0" },
-    welcomeText: {
-      fontSize: "16px",
+    title: {
+      fontSize: "1.6rem",
+      fontWeight: "bold",
+      marginBottom: "1rem",
       color: "#333",
-      marginBottom: "10px",
-      fontWeight: "bold",
+      textAlign: "center",
     },
-    logoutButton: {
-      padding: "8px 15px",
-      backgroundColor: "#dc3545",
-      color: "#fff",
-      border: "none",
-      borderRadius: "4px",
-      cursor: "pointer",
-      fontWeight: "bold",
+    usernameHighlight: {
+      color: "#1976d2",
     },
-    tableSection: {
-      width: "100%",
-      maxWidth: "1000px",
-      backgroundColor: "#fff",
-      padding: "20px",
+    tableWrapper: {
+      width: "95%",
+      maxWidth: "1200px",
+      marginBottom: "2rem",
       borderRadius: "8px",
-      marginTop: "20px",
-      boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+      overflow: "hidden",
+      boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
+      backgroundColor: "#fff",
     },
-    tableHeader: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: "15px",
+    table: {
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: "0.9rem",
     },
-    switchButton: {
-      padding: "10px 20px",
-      backgroundColor: "#6c757d",
-      color: "#fff",
-      border: "none",
-      borderRadius: "4px",
-      cursor: "pointer",
-      fontWeight: "bold",
-    },
-    table: { width: "100%", borderCollapse: "collapse" },
     th: {
-      backgroundColor: "#007bff",
-      color: "white",
-      padding: "10px",
+      backgroundColor: "#1976d2",
+      color: "#fff",
+      padding: "0.75rem",
       textAlign: "left",
     },
     td: {
+      padding: "0.75rem",
       borderBottom: "1px solid #ddd",
-      padding: "10px",
-      verticalAlign: "middle",
       cursor: "pointer",
     },
-    celdaID: {
+    rowSelected: {
+      backgroundColor: "#e3f2fd",
+    },
+    rowHover: {
+      backgroundColor: "#f5f5f5",
+    },
+    actionsRow: {
       display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginTop: "1rem",
+      width: "95%",
+      maxWidth: "1200px",
     },
-    idNumero: { fontSize: "1.1em", fontWeight: "bold", color: "#333" },
-    idUsuario: {
-      fontSize: "0.9em",
+    filterButton: {
+      padding: "0.5rem 1rem",
+      fontSize: "0.9rem",
+      borderRadius: "4px",
+      border: "none",
+      backgroundColor: "#1976d2",
       color: "#fff",
-      backgroundColor: "#28a745",
-      padding: "2px 6px",
-      borderRadius: "3px",
-      fontWeight: "bold",
-      marginTop: "3px",
+      cursor: "pointer",
+      marginRight: "0.5rem",
     },
-    thCheckbox: {
-      width: "40px",
-      backgroundColor: "#007bff",
-      textAlign: "center",
-      padding: "10px",
+    dangerButton: {
+      backgroundColor: "#d32f2f",
     },
-    tdCheckbox: {
-      width: "40px",
-      borderBottom: "1px solid #ddd",
-      padding: "10px",
-      textAlign: "center",
+    blockButton: {
+      backgroundColor: "#f57c00",
     },
-    checkbox: { transform: "scale(1.5)", cursor: "pointer" },
-    rowSelected: { backgroundColor: "#e8f0fe" },
-    blockedLabel: {
-      marginLeft: "8px",
-      fontSize: "0.8em",
-      backgroundColor: "#dc3545",
-      color: "#fff",
-      padding: "2px 5px",
-      borderRadius: "3px",
+    secondaryButton: {
+      padding: "0.5rem 1rem",
+      fontSize: "0.9rem",
+      borderRadius: "4px",
+      border: "1px solid #1976d2",
+      backgroundColor: "#fff",
+      color: "#1976d2",
+      cursor: "pointer",
     },
     modalOverlay: {
       position: "fixed",
       top: 0,
       left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: "rgba(0,0,0,0.5)",
+      width: "100vw",
+      height: "100vh",
+      backgroundColor: "rgba(0, 0, 0, 0.4)",
       display: "flex",
       justifyContent: "center",
       alignItems: "center",
-      zIndex: 1000,
+      zIndex: 9999,
     },
     modalContent: {
       backgroundColor: "#fff",
+      padding: "1.5rem",
       borderRadius: "8px",
       width: "90%",
       maxWidth: "900px",
       maxHeight: "90vh",
       overflowY: "auto",
-      overflowX: "hidden",
-      display: "flex",
-      flexDirection: "column",
+      boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
     },
     modalHeader: {
-      padding: "20px",
-      borderBottom: "1px solid #eee",
       display: "flex",
       justifyContent: "space-between",
       alignItems: "center",
-      backgroundColor: "#f8f9fa",
-      gap: "10px",
+      marginBottom: "1rem",
     },
-    modalBody: { padding: "20px" },
-    tabBar: {
-      display: "flex",
-      borderBottom: "1px solid #ddd",
-      marginBottom: "20px",
-    },
-    tabButton: {
-      padding: "10px 20px",
-      border: "none",
-      background: "none",
-      cursor: "pointer",
-      fontSize: "15px",
-      color: "#666",
-    },
-    tabButtonActive: {
-      color: "#007bff",
-      borderBottom: "3px solid #007bff",
+    modalTitle: {
+      fontSize: "1.2rem",
       fontWeight: "bold",
     },
-    parteItem: {
-      border: "1px solid #eee",
-      borderRadius: "6px",
-      padding: "10px",
-      marginBottom: "10px",
-      backgroundColor: "#fafafa",
+    closeButton: {
+      background: "none",
+      border: "none",
+      fontSize: "1.2rem",
       cursor: "pointer",
     },
-    parteHeader: {
+    detailsRow: {
       display: "flex",
       justifyContent: "space-between",
-      marginBottom: "5px",
-      fontSize: "0.9em",
-      color: "#666",
+      marginBottom: "0.5rem",
     },
-    parteSumilla: {
+    detailsLabel: {
       fontWeight: "bold",
-      color: "#333",
-      fontSize: "1.1em",
-      whiteSpace: "pre-wrap",
-      wordBreak: "break-word",
+      marginRight: "0.5rem",
     },
-    labelDetalle: {
-      fontWeight: "bold",
-      color: "#007bff",
-      marginTop: "10px",
-      borderBottom: "1px dotted #ccc",
-      paddingBottom: "3px",
-    },
-    detalleValor: {
-      padding: "5px 0",
-      whiteSpace: "pre-wrap",
-      wordBreak: "break-word",
-    },
-    downloadButton: {
-      padding: "8px 15px",
-      backgroundColor: "#28a745",
-      color: "#fff",
-      border: "none",
-      borderRadius: "4px",
+    tabsContainer: {
+  display: "flex",
+  marginBottom: "1rem",
+  borderBottom: "1px solid #ddd",
+},
+    tabButton: {
+      padding: "0.5rem 1rem",
       cursor: "pointer",
+      border: "none",
+      borderBottom: "2px solid transparent",
+      backgroundColor: "transparent",
       fontWeight: "bold",
-      marginLeft: "15px",
     },
-    blockInput: {
-      width: "100%",
-      padding: "10px",
-      border: "1px solid #ccc",
+    tabButtonActive: {
+      borderBottom: "2px solid #1976d2",
+      color: "#1976d2",
+    },
+    partesList: {
+      maxHeight: "300px",
+      overflowY: "auto",
+      border: "1px solid #ddd",
       borderRadius: "4px",
-      minHeight: "80px",
-      margin: "15px 0",
+      padding: "0.5rem",
     },
-    modalFooter: {
+    parteItem: {
+      padding: "0.5rem",
+      borderBottom: "1px solid #eee",
+      cursor: "pointer",
+    },
+    parteItemHover: {
+      backgroundColor: "#f5f5f5",
+    },
+    bloqueadoLabel: {
+      color: "#d32f2f",
+      fontWeight: "bold",
+      marginLeft: "0.5rem",
+    },
+    multimediaGrid: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+      gap: "0.75rem",
+      marginTop: "1rem",
+    },
+    multimediaItem: {
+      borderRadius: "4px",
+      overflow: "hidden",
+      border: "1px solid #ddd",
+      padding: "0.25rem",
+      backgroundColor: "#fafafa",
+    },
+    multimediaImage: {
+      width: "100%",
+      height: "auto",
+      borderRadius: "4px",
+    },
+    multimediaVideo: {
+      width: "100%",
+      borderRadius: "4px",
+    },
+    blockModalContent: {
+      backgroundColor: "#fff",
+      padding: "1.5rem",
+      borderRadius: "8px",
+      width: "90%",
+      maxWidth: "500px",
+    },
+    blockTextarea: {
+      width: "100%",
+      minHeight: "80px",
+      marginTop: "0.5rem",
+      marginBottom: "1rem",
+      padding: "0.5rem",
+      borderRadius: "4px",
+      border: "1px solid #ccc",
+      fontFamily: "inherit",
+      fontSize: "0.9rem",
+    },
+    blockModalButtons: {
       display: "flex",
       justifyContent: "flex-end",
-      gap: "10px",
-      marginTop: "20px",
+      gap: "0.5rem",
     },
   };
 
-  // --- MODAL BLOQUEO ---
-  const renderBlockModal = () => {
-    if (!showBlockModal) return null;
+  const renderUserRow = (user: UsuarioSistema) => {
+    const isSelected = selectedUserIds.includes(user.id);
+    const isBlocked = user.estado === "BLOQUEADO";
+
     return (
-      <div style={styles.modalOverlay}>
-        <div style={{ ...styles.modalContent, maxWidth: "500px" }}>
-          <div style={styles.modalHeader}>
-            <h2 style={{ margin: 0 }}>Bloquear / Desbloquear</h2>
-            <button
-              onClick={() => setShowBlockModal(false)}
-              style={{
-                border: "none",
-                background: "none",
-                fontSize: "24px",
-                cursor: "pointer",
-              }}
-            >
-              ×
-            </button>
-          </div>
-          <div style={styles.modalBody}>
-            <p>
-              Usuarios seleccionados:{" "}
-              <strong>{selectedUserIds.length}</strong>
-            </p>
-            <p>
-              Puedes bloquear (ej: vacaciones) o desbloquear los usuarios
-              seleccionados.
-            </p>
-            <textarea
-              style={styles.blockInput}
-              placeholder="Motivo del bloqueo (ejemplo: Vacaciones del 10 al 20)..."
-              value={blockReason}
-              onChange={(e) => setBlockReason(e.target.value)}
+      <tr
+        key={`${user.tipo_tabla}-${user.id}`}
+        style={{
+          ...(isSelected ? styles.rowSelected : {}),
+        }}
+        onClick={() =>
+          isSelectionModeActive ? toggleSelect(user.id) : handleRowClick(user)
+        }
+      >
+        <td>
+          {isSelectionModeActive && (
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => toggleSelect(user.id)}
+              onClick={(e) => e.stopPropagation()}
             />
-            <div style={styles.modalFooter}>
+          )}
+        </td>
+        <td>{user.id}</td>
+        <td>{user.nombre_usuario || user.usuario || user.nombre}</td>
+        <td>{user.rol || (user.tipo_tabla === "APP" ? "APP" : "ADMIN")}</td>
+        <td>{user.nombres || "-"}</td>
+        <td>{user.dni || "-"}</td>
+        <td>{user.creado_en || "-"}</td>
+        <td>
+          {isBlocked ? (
+            <span style={styles.bloqueadoLabel}>
+              BLOQUEADO {user.bloqueo_motivo ? `(${user.bloqueo_motivo})` : ""}
+            </span>
+          ) : (
+            "ACTIVO"
+          )}
+        </td>
+      </tr>
+    );
+  };
+
+  const renderUserDetails = () => {
+    if (!userDetails) return null;
+
+    return (
+      <div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>ID Usuario:</span>
+          <span>{userDetails.id}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Nombre Usuario:</span>
+          <span>
+            {userDetails.nombre_usuario ||
+              userDetails.usuario ||
+              userDetails.nombre}
+          </span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Rol:</span>
+          <span>{userDetails.rol || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Nombres:</span>
+          <span>{userDetails.nombres || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>DNI:</span>
+          <span>{userDetails.dni || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Celular:</span>
+          <span>{userDetails.celular || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Cargo:</span>
+          <span>{userDetails.cargo || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Dirección:</span>
+          <span>{userDetails.direccion || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Correo:</span>
+          <span>{userDetails.correo || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Fecha creación:</span>
+          <span>{userDetails.creado_en || "-"}</span>
+        </div>
+      </div>
+    );
+  };
+
+  const renderParteDetail = () => {
+    if (!selectedParteDetail) return null;
+
+    const p = selectedParteDetail;
+
+    return (
+      <div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>ID Parte:</span>
+          <span>{p.id}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Sector:</span>
+          <span>{p.sector || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Zona:</span>
+          <span>{p.zona || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Turno:</span>
+          <span>{p.turno || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Lugar:</span>
+          <span>{p.lugar || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Fecha:</span>
+          <span>{p.fecha || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Hora inicio:</span>
+          <span>{p.hora || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Hora fin:</span>
+          <span>{p.hora_fin || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Unidad:</span>
+          <span>
+            {p.unidad_tipo || ""} {p.unidad_numero || ""}
+          </span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Placa:</span>
+          <span>{p.placa || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Conductor:</span>
+          <span>{p.conductor || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>DNI Conductor:</span>
+          <span>{p.dni_conductor || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Sumilla / Incidencia:</span>
+          <span>{p.sumilla || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Asunto / Origen atención:</span>
+          <span>{p.asunto || p.origen_atencion || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Supervisor Zonal:</span>
+          <span>{p.sup_zonal || p.supervisor_zonal || "-"}</span>
+        </div>
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Supervisor General:</span>
+          <span>{p.sup_general || p.supervisor_general || "-"}</span>
+        </div>
+      </div>
+    );
+  };
+
+  const renderMultimedia = () => {
+    if (!selectedParteDetail) return null;
+
+    const fotos = selectedParteDetail.fotos || [];
+    const videos = selectedParteDetail.videos || [];
+
+    if (fotos.length === 0 && videos.length === 0) {
+      return <p>No hay archivos multimedia registrados para este parte.</p>;
+    }
+
+    return (
+      <div style={styles.multimediaGrid}>
+        {fotos.map((foto) => (
+          <div key={`foto-${foto.id}`} style={styles.multimediaItem}>
+            <img
+              src={foto.ruta}
+              alt={foto.nombre_original}
+              style={styles.multimediaImage}
+            />
+            <div>{foto.nombre_original}</div>
+          </div>
+        ))}
+        {videos.map((video) => (
+          <div key={`video-${video.id}`} style={styles.multimediaItem}>
+            <video controls style={styles.multimediaVideo}>
+              <source src={video.ruta} />
+              Tu navegador no soporta video.
+            </video>
+            <div>{video.nombre_original}</div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div style={styles.container}>
+      <ControlPanel
+        userName={userName}
+        selectedUserCount={selectedUserIds.length}
+        isSelectionModeActive={isSelectionModeActive}
+        currentMode={currentMode}
+        currentUserTarget={vistaActual}
+        onUserTargetChange={handleUserTargetChange}
+        onSelectModeChange={handleSelectModeChange}
+        onDeleteUsers={handleDeleteUsers}
+        onOpenBlockModal={handleOpenBlockModal}
+        onLogout={handleLogout}
+        onBack={handleBack}
+      />
+
+      <h2 style={styles.title}>
+        Panel de Administración –{" "}
+        <span style={styles.usernameHighlight}>{userName}</span>
+      </h2>
+
+      <div style={styles.tableWrapper}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Sel</th>
+              <th style={styles.th}>ID</th>
+              <th style={styles.th}>Usuario</th>
+              <th style={styles.th}>Rol</th>
+              <th style={styles.th}>Nombres</th>
+              <th style={styles.th}>DNI</th>
+              <th style={styles.th}>Creado en</th>
+              <th style={styles.th}>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cargandoTabla ? (
+              <tr>
+                <td colSpan={8} style={styles.td}>
+                  Cargando usuarios...
+                </td>
+              </tr>
+            ) : listaUsuarios.length === 0 ? (
+              <tr>
+                <td colSpan={8} style={styles.td}>
+                  No hay usuarios registrados para esta vista.
+                </td>
+              </tr>
+            ) : (
+              listaUsuarios.map((user) => renderUserRow(user))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Modal de detalles de usuario y partes */}
+      {showDetailsModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>
+                Detalles de Usuario – ID {userDetails?.id}
+              </h3>
               <button
-                onClick={() => setShowBlockModal(false)}
-                style={{
-                  padding: "8px 15px",
-                  border: "1px solid #ccc",
-                  borderRadius: "4px",
-                  background: "#fff",
-                  cursor: "pointer",
+                style={styles.closeButton}
+                onClick={() => {
+                  setShowDetailsModal(false);
+                  setSelectedParteDetail(null);
+                  setUsuarioPartes([]);
+                  setUserDetails(null);
+                  setParteDetailTab("INFO");
+                  setCurrentTabView("DETAILS");
                 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {loadingModal ? (
+              <p>Cargando...</p>
+            ) : (
+              <>
+                <div style={styles.tabsContainer}>
+                  <button
+                    style={{
+                      ...styles.tabButton,
+                      ...(currentTabView === "DETAILS"
+                        ? styles.tabButtonActive
+                        : {}),
+                    }}
+                    onClick={() => setCurrentTabView("DETAILS")}
+                  >
+                    Datos del usuario
+                  </button>
+                  <button
+                    style={{
+                      ...styles.tabButton,
+                      ...(currentTabView === "PARTES"
+                        ? styles.tabButtonActive
+                        : {}),
+                    }}
+                    onClick={() => setCurrentTabView("PARTES")}
+                  >
+                    Partes registrados
+                  </button>
+                </div>
+
+                {currentTabView === "DETAILS" && renderUserDetails()}
+
+                {currentTabView === "PARTES" && (
+                  <div>
+                    <h4>Partes del usuario</h4>
+                    {usuarioPartes.length === 0 ? (
+                      <p>Este usuario no tiene partes registrados.</p>
+                    ) : (
+                      <div style={styles.partesList}>
+                        {usuarioPartes.map((parte) => (
+                          <div
+                            key={parte.id}
+                            style={styles.parteItem}
+                            onClick={() => handleParteClick(parte.id)}
+                          >
+                            <strong>ID Parte:</strong> {parte.id} –{" "}
+                            {parte.sumilla || parte.asunto || "Sin sumilla"}{" "}
+                            ({parte.fecha || "-"})
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {selectedParteDetail && (
+                      <>
+                        <div style={styles.tabsContainer}>
+                          <button
+                            style={{
+                              ...styles.tabButton,
+                              ...(parteDetailTab === "INFO"
+                                ? styles.tabButtonActive
+                                : {}),
+                            }}
+                            onClick={() => setParteDetailTab("INFO")}
+                          >
+                            Información
+                          </button>
+                          <button
+                            style={{
+                              ...styles.tabButton,
+                              ...(parteDetailTab === "MULTIMEDIA"
+                                ? styles.tabButtonActive
+                                : {}),
+                            }}
+                            onClick={() => setParteDetailTab("MULTIMEDIA")}
+                          >
+                            Multimedia
+                          </button>
+                        </div>
+
+                        {parteDetailTab === "INFO"
+                          ? renderParteDetail()
+                          : renderMultimedia()}
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de bloqueo */}
+      {showBlockModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.blockModalContent}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Gestionar bloqueo de usuarios</h3>
+              <button
+                style={styles.closeButton}
+                onClick={() => setShowBlockModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <p>
+              Estás a punto de{" "}
+              <strong>
+                {currentMode === "BLOCK" ? "BLOQUEAR" : "DESBLOQUEAR"}
+              </strong>{" "}
+              {selectedUserIds.length} usuario(s).
+            </p>
+            {currentMode === "BLOCK" && (
+              <>
+                <label>
+                  Motivo del bloqueo (Ej: Vacaciones, Suspensión, etc.):
+                </label>
+                <textarea
+                  style={styles.blockTextarea}
+                  value={blockReason}
+                  onChange={(e) => setBlockReason(e.target.value)}
+                />
+              </>
+            )}
+            <div style={styles.blockModalButtons}>
+              <button
+                style={styles.secondaryButton}
+                onClick={() => setShowBlockModal(false)}
+                disabled={blockActionLoading}
               >
                 Cancelar
               </button>
               <button
-                onClick={() => handleExecuteBlock("DESBLOQUEAR")}
+                style={{
+                  ...styles.filterButton,
+                  ...(currentMode === "BLOCK"
+                    ? styles.blockButton
+                    : styles.dangerButton),
+                }}
+                onClick={() =>
+                  handleExecuteBlock(
+                    currentMode === "BLOCK" ? "BLOQUEAR" : "DESBLOQUEAR"
+                  )
+                }
                 disabled={blockActionLoading}
-                style={{
-                  padding: "8px 15px",
-                  border: "none",
-                  borderRadius: "4px",
-                  background: "#17a2b8",
-                  color: "#fff",
-                  cursor: "pointer",
-                  fontWeight: "bold",
-                }}
               >
-                {blockActionLoading ? "Procesando..." : "Desbloquear"}
-              </button>
-              <button
-                onClick={() => handleExecuteBlock("BLOQUEAR")}
-                disabled={blockActionLoading}
-                style={{
-                  padding: "8px 15px",
-                  border: "none",
-                  borderRadius: "4px",
-                  background: "#dc3545",
-                  color: "#fff",
-                  cursor: "pointer",
-                  fontWeight: "bold",
-                }}
-              >
-                {blockActionLoading ? "Procesando..." : "Bloquear"}
+                {blockActionLoading
+                  ? "Aplicando..."
+                  : currentMode === "BLOCK"
+                  ? "Bloquear"
+                  : "Desbloquear"}
               </button>
             </div>
           </div>
         </div>
-      </div>
-    );
-  };
-
-  // --- DETALLE DE PARTE: INFO + MULTIMEDIA ---
-  const renderParteDetail = () => {
-    if (!selectedParteDetail) return null;
-    const p = selectedParteDetail;
-
-    const supervisorZonal = p.supervisor_zonal || p.sup_zonal;
-    const supervisorGeneral = p.supervisor_general || p.sup_general;
-
-    const fotos = p.fotos || [];
-    const videos = p.videos || [];
-    const hayMultimedia =
-      (fotos && fotos.length > 0) || (videos && videos.length > 0);
-
-    const participantesLista = p.participantes || [];
-    const participantesTexto =
-      p.participantes_texto || p.serenos_participantes || "";
-
-    // 🔹 SUB-VISTA SOLO MULTIMEDIA
-    if (parteDetailTab === "MEDIA") {
-      return (
-        <div>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: "15px",
-            }}
-          >
-            <button
-              style={{
-                ...styles.tabButton,
-                color: "#dc3545",
-                borderBottom: "none",
-              }}
-              onClick={() => setSelectedParteDetail(null)}
-            >
-              ⬅️ Volver a la lista de partes
-            </button>
-
-            <div>
-              <button
-                style={{
-                  ...styles.tabButton,
-                  borderBottom: "none",
-                  marginRight: "10px",
-                }}
-                onClick={() => setParteDetailTab("INFO")}
-              >
-                📄 Ver detalle
-              </button>
-              <button
-                style={styles.downloadButton}
-                onClick={() => alert(`Lógica descarga ID ${p.id}`)}
-              >
-                ⬇️ Descargar
-              </button>
-            </div>
-          </div>
-
-          <h3
-            style={{
-              borderBottom: "2px solid #007bff",
-              paddingBottom: "5px",
-            }}
-          >
-            Contenido multimedia del Parte N° {p.id}
-          </h3>
-
-          {!hayMultimedia ? (
-            <p style={styles.detalleValor}>
-              No hay archivos multimedia registrados.
-            </p>
-          ) : (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-                gap: "10px",
-              }}
-            >
-              {/* FOTOS */}
-              {fotos.map((f) => {
-                const url = getFotoUrl(f.ruta);
-                return (
-                  <div
-                    key={f.id}
-                    style={{
-                      border: "1px solid #eee",
-                      borderRadius: "6px",
-                      overflow: "hidden",
-                      background: "#fafafa",
-                      cursor: "pointer",
-                    }}
-                    onClick={() => window.open(url, "_blank")}
-                  >
-                    <div
-                      style={{
-                        height: "90px",
-                        overflow: "hidden",
-                        background: "#000",
-                      }}
-                    >
-                      <img
-                        src={url}
-                        alt={f.nombre_original}
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                        }}
-                      />
-                    </div>
-                    <div style={{ fontSize: "12px", padding: "4px 6px" }}>
-                      📷 {f.nombre_original}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* VIDEOS */}
-              {videos.map((v) => {
-                const url = getFotoUrl(v.ruta);
-                return (
-                  <div
-                    key={v.id}
-                    style={{
-                      border: "1px solid #eee",
-                      borderRadius: "6px",
-                      overflow: "hidden",
-                      background: "#fafafa",
-                      padding: "8px 6px",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "4px",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      cursor: "pointer",
-                    }}
-                    onClick={() => window.open(url, "_blank")}
-                  >
-                    <video
-                      src={url}
-                      style={{ width: "100%", maxHeight: "140px" }}
-                      controls
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        width: "100%",
-                        padding: "0 2px",
-                        textAlign: "center",
-                      }}
-                    >
-                      🎬 {v.nombre_original}{" "}
-                      <a
-                        href={url}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ fontSize: "11px", marginLeft: "4px" }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        (Abrir)
-                      </a>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    // 🔹 SUB-VISTA PRINCIPAL DE INFORMACIÓN
-    return (
-      <div>
-        {/* Barra superior */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "15px",
-          }}
-        >
-          <button
-            style={{
-              ...styles.tabButton,
-              color: "#dc3545",
-              borderBottom: "none",
-            }}
-            onClick={() => setSelectedParteDetail(null)}
-          >
-            ⬅️ Volver a la lista de partes
-          </button>
-
-          <div>
-            <button
-              style={{
-                ...styles.tabButton,
-                borderBottom: "none",
-                marginRight: "10px",
-              }}
-              onClick={() => setParteDetailTab("MEDIA")}
-            >
-              📷 Ver contenido multimedia
-            </button>
-            <button
-              style={styles.downloadButton}
-              onClick={() => alert(`Lógica descarga ID ${p.id}`)}
-            >
-              ⬇️ Descargar
-            </button>
-          </div>
-        </div>
-
-        {/* Encabezado */}
-        <h3
-          style={{
-            borderBottom: "2px solid #007bff",
-            paddingBottom: "5px",
-          }}
-        >
-          Parte Virtual #{p.id}
-        </h3>
-        <p style={{ marginTop: "5px", marginBottom: "15px" }}>
-          <strong>N° Parte Físico:</strong> {p.parte_fisico || "-"}
-        </p>
-
-        {/* 1. Fecha y Horas */}
-        <div style={{ marginBottom: "15px" }}>
-          <p style={styles.labelDetalle}>Fecha y Horas</p>
-          <p style={styles.detalleValor}>
-            <strong>Fecha:</strong> {p.fecha || "-"}
-          </p>
-          <p style={styles.detalleValor}>
-            <strong>Hora inicio:</strong> {p.hora || "-"}
-          </p>
-          <p style={styles.detalleValor}>
-            <strong>Hora fin:</strong> {p.hora_fin || "-"}
-          </p>
-        </div>
-
-        {/* 2. Ubicación y Turno */}
-        <div style={{ marginBottom: "15px" }}>
-          <p style={styles.labelDetalle}>Ubicación y Turno</p>
-          <p style={styles.detalleValor}>
-            <strong>Sector:</strong> {p.sector || "-"}
-          </p>
-          <p style={styles.detalleValor}>
-            <strong>Zona:</strong> {p.zona || "-"}
-          </p>
-          <p style={styles.detalleValor}>
-            <strong>Turno:</strong> {p.turno || "-"}
-          </p>
-          <p style={styles.detalleValor}>
-            <strong>Lugar:</strong> {p.lugar || "-"}
-          </p>
-        </div>
-
-        {/* 3. Unidad y Conductor + Participantes */}
-        <div style={{ marginBottom: "15px" }}>
-          <p style={styles.labelDetalle}>Unidad y Conductor</p>
-          <p style={styles.detalleValor}>
-            <strong>Unidad / Tipo:</strong> {p.unidad_tipo || "-"}
-          </p>
-          <p style={styles.detalleValor}>
-            <strong>Unidad N°:</strong> {p.unidad_numero || "-"}
-          </p>
-          <p style={styles.detalleValor}>
-            <strong>Placa:</strong> {p.placa || "-"}
-          </p>
-          <p style={styles.detalleValor}>
-            <strong>Conductor:</strong> {p.conductor || "-"}
-          </p>
-          <p style={styles.detalleValor}>
-            <strong>DNI Conductor:</strong> {p.dni_conductor || "-"}
-          </p>
-
-          {/* SERENO OPERADOR PARTICIPANTE */}
-          <div style={{ marginTop: "10px" }}>
-            <p
-              style={{
-                ...styles.detalleValor,
-                fontWeight: "bold",
-                textTransform: "uppercase",
-              }}
-            >
-              SERENO OPERADOR PARTICIPANTE
-            </p>
-
-            {participantesLista.length > 0 ? (
-              <ol style={{ paddingLeft: "20px", margin: 0 }}>
-                {participantesLista.map((pa, idx) => (
-                  <li key={idx} style={{ marginBottom: "4px" }}>
-                    <div>{pa.nombre || "-"}</div>
-                    <div style={{ fontSize: "0.9em" }}>
-                      DNI: {pa.dni || "-"}
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            ) : participantesTexto ? (
-              <p style={styles.detalleValor}>{participantesTexto}</p>
-            ) : (
-              <p style={styles.detalleValor}>
-                No se registraron participantes adicionales.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* 4. Detalle de la Incidencia */}
-        <div style={{ marginBottom: "15px" }}>
-          <p style={styles.labelDetalle}>Detalle de la Incidencia</p>
-          <p style={styles.detalleValor}>
-            <strong>Incidencia:</strong> {p.sumilla || p.asunto || "-"}
-          </p>
-          <p style={styles.detalleValor}>
-            <strong>Origen de atención:</strong>{" "}
-            {p.origen_atencion || "No especificado"}
-          </p>
-          <p style={styles.detalleValor}>
-            <strong>Ocurrencia:</strong>
-          </p>
-          <p style={styles.detalleValor}>{p.ocurrencia || "-"}</p>
-        </div>
-
-        {/* 5. Supervisión */}
-        <div style={{ marginBottom: "5px" }}>
-          <p style={styles.labelDetalle}>Supervisión</p>
-          <p style={styles.detalleValor}>
-            <strong>Supervisor Zonal:</strong> {supervisorZonal || "-"}
-          </p>
-          <p style={styles.detalleValor}>
-            <strong>Supervisor General:</strong> {supervisorGeneral || "-"}
-          </p>
-        </div>
-      </div>
-    );
-  };
-
-  // --- MODAL DE DETALLE DE USUARIO + PARTES ---
-  const renderDetailsModal = () => {
-    if (!showDetailsModal) return null;
-
-    const det = userDetails;
-    const nombreMostrar =
-      det?.nombre || det?.nombres || det?.nombre_usuario || "Usuario";
-    const cargoMostrar =
-      det?.cargo || (det?.rol && det.tipo_tabla === "ADMIN" ? det.rol : "");
-    const usuarioLogin = det?.usuario || det?.nombre_usuario || "";
-    const dni = det?.dni || "";
-    const celular = det?.celular || "";
-    const fotoUrl = det?.foto_ruta ? getFotoUrl(det.foto_ruta) : "";
-
-    let content: React.ReactNode;
-
-    if (currentTabView === "PARTES" && selectedParteDetail) {
-      content = renderParteDetail();
-    } else if (currentTabView === "PARTES") {
-      content = (
-        <div style={{ maxHeight: "400px", overflowY: "auto" }}>
-          {usuarioPartes.length === 0 ? (
-            <p>No hay partes registrados para este usuario.</p>
-          ) : (
-            usuarioPartes.map((p) => (
-              <div
-                key={p.id}
-                style={styles.parteItem}
-                onClick={() => handleParteClick(p.id)}
-              >
-                <div style={styles.parteHeader}>
-                  <span>📅 {p.fecha}</span>
-                  <span>🆔 #{p.id}</span>
-                </div>
-                <div style={styles.parteSumilla}>
-                  {p.sumilla || p.asunto || "-"}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      );
-    } else if (det) {
-      content = (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "2fr 1fr",
-            gap: "20px",
-            alignItems: "flex-start",
-          }}
-        >
-          <div>
-            <p style={styles.labelDetalle}>DATOS DEL USUARIO</p>
-            <p style={styles.detalleValor}>
-              <strong>Cargo:</strong> {cargoMostrar || "-"}
-            </p>
-            <p style={styles.detalleValor}>
-              <strong>Usuario:</strong> {usuarioLogin || "-"}
-            </p>
-            <p style={styles.detalleValor}>
-              <strong>DNI:</strong> {dni || "-"}
-            </p>
-            <p style={styles.detalleValor}>
-              <strong>Celular:</strong> {celular || "-"}
-            </p>
-            <p style={styles.detalleValor}>
-              <strong>Estado:</strong>{" "}
-              <span style={{ fontWeight: "bold" }}>
-                {det.estado || "ACTIVO"}
-              </span>
-            </p>
-            {det.estado === "BLOQUEADO" && det.bloqueo_motivo && (
-              <p style={styles.detalleValor}>
-                <strong>Motivo bloqueo:</strong> {det.bloqueo_motivo}
-              </p>
-            )}
-          </div>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "center",
-            }}
-          >
-            {fotoUrl ? (
-              <img
-                src={fotoUrl}
-                alt={nombreMostrar}
-                style={{
-                  width: "140px",
-                  height: "140px",
-                  borderRadius: "8px",
-                  objectFit: "cover",
-                  border: "2px solid #ddd",
-                }}
-              />
-            ) : (
-              <div
-                style={{
-                  width: "140px",
-                  height: "140px",
-                  borderRadius: "8px",
-                  border: "2px dashed #ccc",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "12px",
-                  color: "#999",
-                }}
-              >
-                Sin foto
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    } else {
-      content = <p>Cargando...</p>;
-    }
-
-    return (
-      <div
-        style={styles.modalOverlay}
-        onClick={() => setShowDetailsModal(false)}
-      >
-        <div
-          style={styles.modalContent}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div style={styles.modalHeader}>
-            <h2 style={{ margin: 0 }}>
-              {loadingModal ? "Cargando..." : nombreMostrar}
-            </h2>
-            {det?.estado === "BLOQUEADO" && (
-              <span style={styles.blockedLabel}>BLOQUEADO</span>
-            )}
-            <button
-              onClick={() => setShowDetailsModal(false)}
-              style={{
-                border: "none",
-                background: "none",
-                fontSize: "24px",
-                cursor: "pointer",
-              }}
-            >
-              ×
-            </button>
-          </div>
-          <div style={styles.modalBody}>
-            <div style={styles.tabBar}>
-              <button
-                style={{
-                  ...styles.tabButton,
-                  ...(currentTabView === "DETAILS"
-                    ? styles.tabButtonActive
-                    : {}),
-                }}
-                onClick={() => {
-                  setCurrentTabView("DETAILS");
-                  setSelectedParteDetail(null);
-                }}
-              >
-                📋 Información
-              </button>
-              <button
-                style={{
-                  ...styles.tabButton,
-                  ...(currentTabView === "PARTES"
-                    ? styles.tabButtonActive
-                    : {}),
-                }}
-                onClick={() => {
-                  setCurrentTabView("PARTES");
-                  setSelectedParteDetail(null);
-                }}
-              >
-                📄 Partes ({usuarioPartes.length})
-              </button>
-            </div>
-            {content}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // --- RENDER PRINCIPAL ---
-  return (
-    <div style={styles.container}>
-      {renderDetailsModal()}
-      {renderBlockModal()}
-
-      <div style={styles.header}>
-        <div style={styles.topBar}>
-          <h2 style={styles.title}>Panel de Administración</h2>
-          <button style={styles.logoutButton} onClick={handleLogout}>
-            Salir
-          </button>
-        </div>
-        <p style={styles.welcomeText}>Hola, {userName}</p>
-      </div>
-
-      <ControlPanel
-        selectedUserCount={selectedUserIds.length}
-        onDeleteUsers={handleDeleteUsers}
-        onBlockAction={handleOpenBlockModal}
-        isSelectionModeActive={isSelectionModeActive}
-        currentMode={currentMode}
-        onToggleSelection={handleToggleSelectionMode}
-      />
-
-      <div style={styles.tableSection}>
-        <div style={styles.tableHeader}>
-          <h3>{vistaActual === "APP" ? "Usuarios App" : "Administrativos"}</h3>
-          <button
-            style={styles.switchButton}
-            onClick={() =>
-              setVistaActual(vistaActual === "APP" ? "ADMIN" : "APP")
-            }
-          >
-            {vistaActual === "APP" ? "Ver Admin ➡" : "⬅ Ver App"}
-          </button>
-        </div>
-        {cargandoTabla ? (
-          <p style={{ textAlign: "center" }}>Cargando...</p>
-        ) : (
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                {isSelectionModeActive && (
-                  <th style={styles.thCheckbox}>✔</th>
-                )}
-                <th style={styles.th}>ID / Usuario</th>
-                <th style={styles.th}>Nombre</th>
-                <th style={styles.th}>Fecha</th>
-              </tr>
-            </thead>
-            <tbody>
-              {listaUsuarios.map((u) => (
-                <tr
-                  key={`${u.tipo_tabla}-${u.id}`}
-                  style={
-                    selectedUserIds.includes(u.id)
-                      ? { ...styles.rowSelected }
-                      : {}
-                  }
-                  onClick={() => !isSelectionModeActive && handleRowClick(u)}
-                >
-                  {isSelectionModeActive && (
-                    <td
-                      style={styles.tdCheckbox}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedUserIds.includes(u.id)}
-                        onChange={() => toggleSelect(u.id)}
-                        style={styles.checkbox}
-                      />
-                    </td>
-                  )}
-                  <td style={styles.td}>
-                    <div style={styles.celdaID}>
-                      <span style={styles.idNumero}>{u.id}</span>
-                      <span style={styles.idUsuario}>{u.tipo_tabla}</span>
-                    </div>
-                  </td>
-                  <td style={styles.td}>
-                    {u.nombre || u.nombres}
-                    {u.estado === "BLOQUEADO" && (
-                      <span style={styles.blockedLabel}>BLOQUEADO</span>
-                    )}
-                  </td>
-                  <td style={styles.td}>
-                    {u.creado_en
-                      ? new Date(u.creado_en).toLocaleDateString()
-                      : "-"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      )}
     </div>
   );
 }
