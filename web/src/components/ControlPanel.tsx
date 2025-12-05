@@ -222,7 +222,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const [tipoNuevo, setTipoNuevo] = useState<UserTarget>("APP");
   const [nombreNuevo, setNombreNuevo] = useState("");
   const [usuarioNuevo, setUsuarioNuevo] = useState("");
-  const [passwordNuevo, setPasswordNuevo] = useState("");
   const [dniNuevo, setDniNuevo] = useState("");
   const [celularNuevo, setCelularNuevo] = useState("");
   const [cargoNuevo, setCargoNuevo] = useState("");
@@ -271,15 +270,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       return;
     }
 
-    let password = passwordNuevo.trim();
-
     if (tipoNuevo === "APP") {
       if (!dniNuevo.trim()) {
         alert("El DNI es obligatorio para usuarios APP.");
         return;
-      }
-      if (!password) {
-        password = dniNuevo.trim();
       }
 
       try {
@@ -290,7 +284,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         formData.append("celular", celularNuevo.trim());
         formData.append("cargo", cargoNuevo.trim());
         formData.append("usuario", login);
-        formData.append("contrasena", password);
         if (fotoFile) {
           formData.append("foto", fotoFile);
         }
@@ -310,7 +303,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         }
 
         alert(
-          `Usuario APP creado correctamente.\nUsuario: ${login}\nContraseña: ${password}`
+          `Usuario APP creado correctamente.\nUsuario: ${login}`
         );
         window.location.reload();
       } catch (error) {
@@ -320,15 +313,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         setCreando(false);
       }
     } else {
-      if (!password) {
-        password = "123456";
-      }
-
       try {
         setCreando(true);
         const body = {
           nombre_usuario: login,
-          password,
           rol: rolAdminNuevo,
           // En tu backend local estos campos deberían existir en la tabla de administradores.
           // Si aún no, luego creamos esas columnas.
@@ -353,7 +341,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         }
 
         alert(
-          `Usuario ADMIN creado correctamente.\nUsuario: ${login}\nContraseña: ${password}\nRol: ${rolAdminNuevo}`
+          `Usuario ADMIN creado correctamente.\nUsuario: ${login}\nRol: ${rolAdminNuevo}`
         );
         window.location.reload();
       } catch (error) {
@@ -619,24 +607,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               </div>
 
               <div style={styles.createRow}>
-                <div style={styles.createField}>
-                  <label style={styles.createLabel}>
-                    Contraseña{" "}
-                    <span style={styles.smallInfo}>
-                      {tipoNuevo === "APP"
-                        ? "(si la dejas vacía será el DNI)"
-                        : "(si la dejas vacía será 123456)"}
-                    </span>
-                  </label>
-                  <input
-                    type="password"
-                    value={passwordNuevo}
-                    onChange={(e) => setPasswordNuevo(e.target.value)}
-                    style={styles.createInput}
-                    placeholder="Contraseña inicial"
-                  />
-                </div>
-
                 {tipoNuevo === "APP" && (
                   <>
                     <div style={styles.createField}>
