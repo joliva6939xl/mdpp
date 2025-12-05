@@ -13,6 +13,7 @@ Movil/.env
 # ===== LOGS =====
 logs
 *.log
+npm_output.log
 
 # ===== UPLOADS (archivos pesados) =====
 api/uploads/
@@ -28,3 +29,7 @@ Movil/ios/
 # ===== SISTEMA =====
 .DS_Store
 Thumbs.db
+
+# ===== VERIFICATION =====
+verification/
+verify_login.py
