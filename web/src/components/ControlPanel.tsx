@@ -229,7 +229,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const [rolAdminNuevo, setRolAdminNuevo] = useState("ADMIN");
   const [permCrearParte, setPermCrearParte] = useState(true);
   const [permBorrarParte, setPermBorrarParte] = useState(false);
-  const [permCerrarParte, setPermCerrarParte] = useState(false);
+  const [permEditarParte, setPermEditarParte] = useState(false);
+  const [permDescargarParte, setPermDescargarParte] = useState(false);
   const [fotoFile, setFotoFile] = useState<File | null>(null);
   const [creando, setCreando] = useState(false);
 
@@ -320,21 +321,23 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         setCreando(false);
       }
     } else {
-      if (!password) {
-        password = "123456";
+      if (!dniNuevo.trim()) {
+        alert("El DNI es obligatorio para usuarios ADMIN, ya que será su contraseña.");
+        return;
       }
 
       try {
         setCreando(true);
         const body = {
           nombre_usuario: login,
-          password,
           rol: rolAdminNuevo,
+          password: dniNuevo.trim(),
           // En tu backend local estos campos deberían existir en la tabla de administradores.
           // Si aún no, luego creamos esas columnas.
           puede_crear_parte: permCrearParte,
           puede_borrar_parte: permBorrarParte,
-          puede_cerrar_parte: permCerrarParte,
+          puede_editar_parte: permEditarParte,
+          puede_descargar_parte: permDescargarParte,
         };
 
         const resp = await fetch(`${API_URL}/admin/register-admin`, {
@@ -353,7 +356,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         }
 
         alert(
-          `Usuario ADMIN creado correctamente.\nUsuario: ${login}\nContraseña: ${password}\nRol: ${rolAdminNuevo}`
+          `Usuario ADMIN creado correctamente.\nUsuario: ${login}\nRol: ${rolAdminNuevo}`
         );
         window.location.reload();
       } catch (error) {
@@ -619,24 +622,23 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               </div>
 
               <div style={styles.createRow}>
-                <div style={styles.createField}>
-                  <label style={styles.createLabel}>
-                    Contraseña{" "}
-                    <span style={styles.smallInfo}>
-                      {tipoNuevo === "APP"
-                        ? "(si la dejas vacía será el DNI)"
-                        : "(si la dejas vacía será 123456)"}
-                    </span>
-                  </label>
-                  <input
-                    type="password"
-                    value={passwordNuevo}
-                    onChange={(e) => setPasswordNuevo(e.target.value)}
-                    style={styles.createInput}
-                    placeholder="Contraseña inicial"
-                  />
-                </div>
-
+                {tipoNuevo === "APP" && (
+                  <div style={styles.createField}>
+                    <label style={styles.createLabel}>
+                      Contraseña{" "}
+                      <span style={styles.smallInfo}>
+                        (si la dejas vacía será el DNI)
+                      </span>
+                    </label>
+                    <input
+                      type="password"
+                      value={passwordNuevo}
+                      onChange={(e) => setPasswordNuevo(e.target.value)}
+                      style={styles.createInput}
+                      placeholder="Contraseña inicial"
+                    />
+                  </div>
+                )}
                 {tipoNuevo === "APP" && (
                   <>
                     <div style={styles.createField}>
@@ -676,16 +678,28 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 )}
 
                 {tipoNuevo === "ADMIN" && (
-                  <div style={styles.createField}>
-                    <label style={styles.createLabel}>Rol ADMIN</label>
-                    <input
-                      type="text"
-                      value={rolAdminNuevo}
-                      onChange={(e) => setRolAdminNuevo(e.target.value)}
-                      style={styles.createInput}
-                      placeholder="Ej: ADMIN, JEFE_MAESTRO..."
-                    />
-                  </div>
+                  <>
+                    <div style={styles.createField}>
+                      <label style={styles.createLabel}>DNI (será la contraseña)</label>
+                      <input
+                        type="text"
+                        value={dniNuevo}
+                        onChange={(e) => setDniNuevo(e.target.value)}
+                        style={styles.createInput}
+                        placeholder="DNI"
+                      />
+                    </div>
+                    <div style={styles.createField}>
+                      <label style={styles.createLabel}>Rol ADMIN</label>
+                      <input
+                        type="text"
+                        value={rolAdminNuevo}
+                        onChange={(e) => setRolAdminNuevo(e.target.value)}
+                        style={styles.createInput}
+                        placeholder="Ej: ADMIN, JEFE_MAESTRO..."
+                      />
+                    </div>
+                  </>
                 )}
               </div>
 
@@ -731,10 +745,18 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                       <label style={styles.checkboxLabel}>
                         <input
                           type="checkbox"
-                          checked={permCerrarParte}
-                          onChange={(e) => setPermCerrarParte(e.target.checked)}
+                          checked={permEditarParte}
+                          onChange={(e) => setPermEditarParte(e.target.checked)}
                         />
-                        Cerrar parte
+                        Editar parte
+                      </label>
+                      <label style={styles.checkboxLabel}>
+                        <input
+                          type="checkbox"
+                          checked={permDescargarParte}
+                          onChange={(e) => setPermDescargarParte(e.target.checked)}
+                        />
+                        Descargar parte
                       </label>
                     </div>
                   </div>
