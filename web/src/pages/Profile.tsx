@@ -115,9 +115,9 @@ export default function Profile() {
 
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
   const [isSelectionModeActive, setIsSelectionModeActive] = useState(false);
-  const [currentMode, setCurrentMode] = useState<"DELETE" | "BLOCK" | "NONE">(
-    "NONE"
-  );
+  const [currentMode, setCurrentMode] = useState<
+  "DELETE" | "BLOCK" | "UNBLOCK" | "NONE"
+>("NONE");
 
   // Modal usuario
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -185,7 +185,9 @@ export default function Profile() {
     setCurrentMode("NONE");
   };
 
-  const handleSelectModeChange = (mode: "DELETE" | "BLOCK" | "NONE") => {
+ const handleSelectModeChange = (
+  mode: "DELETE" | "BLOCK" | "UNBLOCK" | "NONE"
+) => {
     if (mode === "NONE") {
       setIsSelectionModeActive(false);
       setCurrentMode("NONE");
@@ -669,14 +671,19 @@ export default function Profile() {
     },
   };
 
-  const renderUserRow = (user: UsuarioSistema) => {
+  const renderUserRow = (user: UsuarioSistema, index: number) => {
     const isSelected = selectedUserIds.includes(user.id);
     const isBlocked = user.estado === "BLOQUEADO";
+
+    const baseRowStyle: React.CSSProperties = {
+      backgroundColor: index % 2 === 0 ? "#ffffff" : "#f9f9f9", // filas zebra
+    };
 
     return (
       <tr
         key={`${user.tipo_tabla}-${user.id}`}
         style={{
+          ...baseRowStyle,
           ...(isSelected ? styles.rowSelected : {}),
         }}
         onClick={() =>
@@ -926,7 +933,7 @@ export default function Profile() {
                 </td>
               </tr>
             ) : (
-              listaUsuarios.map((user) => renderUserRow(user))
+              listaUsuarios.map((user, index) => renderUserRow(user, index))
             )}
           </tbody>
         </table>
