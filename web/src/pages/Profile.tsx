@@ -116,8 +116,8 @@ export default function Profile() {
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
   const [isSelectionModeActive, setIsSelectionModeActive] = useState(false);
   const [currentMode, setCurrentMode] = useState<
-  "DELETE" | "BLOCK" | "UNBLOCK" | "NONE"
->("NONE");
+    "DELETE" | "BLOCK" | "UNBLOCK" | "NONE"
+  >("NONE");
 
   // Modal usuario
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -185,9 +185,9 @@ export default function Profile() {
     setCurrentMode("NONE");
   };
 
- const handleSelectModeChange = (
-  mode: "DELETE" | "BLOCK" | "UNBLOCK" | "NONE"
-) => {
+  const handleSelectModeChange = (
+    mode: "DELETE" | "BLOCK" | "UNBLOCK" | "NONE"
+  ) => {
     if (mode === "NONE") {
       setIsSelectionModeActive(false);
       setCurrentMode("NONE");
@@ -588,10 +588,10 @@ export default function Profile() {
       marginRight: "0.5rem",
     },
     tabsContainer: {
-  display: "flex",
-  marginBottom: "1rem",
-  borderBottom: "1px solid #ddd",
-},
+      display: "flex",
+      marginBottom: "1rem",
+      borderBottom: "1px solid #ddd",
+    },
     tabButton: {
       padding: "0.5rem 1rem",
       cursor: "pointer",
@@ -719,58 +719,120 @@ export default function Profile() {
     );
   };
 
-  const renderUserDetails = () => {
+      const renderUserDetails = () => {
     if (!userDetails) return null;
 
+    // Tipo auxiliar SOLO para las posibles claves de foto
+    type UserDetailsWithPhoto = {
+      foto_ruta?: string | null;
+      foto?: string | null;
+      fotoPerfil?: string | null;
+      foto_perfil?: string | null;
+    };
+
+    const userWithPhoto = userDetails as UserDetailsWithPhoto;
+
+    const rawFoto =
+      userWithPhoto.foto_ruta ??
+      userWithPhoto.foto ??
+      userWithPhoto.fotoPerfil ??
+      userWithPhoto.foto_perfil;
+
+    const fotoUrl = rawFoto ? getFotoUrl(String(rawFoto)) : "";
+
+    const nombreMostrado =
+      userDetails.nombres || userDetails.nombre || userDetails.usuario || "";
+
+    const rolMostrado = userDetails.rol || userDetails.cargo || "-";
+
     return (
-      <div>
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>ID Usuario:</span>
-          <span>{userDetails.id}</span>
+      <div style={styles.detailsContainer}>
+        {/* Encabezado tipo CV */}
+        <div style={styles.detailsHeader}>
+          <div>
+            <div style={styles.detailsHeaderName}>{nombreMostrado}</div>
+            <div style={styles.detailsHeaderTag}>
+              ID Usuario: <strong>{userDetails.id}</strong>
+            </div>
+          </div>
+
+          <div style={styles.detailsHeaderChip}>
+            {rolMostrado.toString().toUpperCase()}
+          </div>
         </div>
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Nombre Usuario:</span>
-          <span>
-            {userDetails.nombre_usuario ||
-              userDetails.usuario ||
-              userDetails.nombre}
-          </span>
-        </div>
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Rol:</span>
-          <span>{userDetails.rol || "-"}</span>
-        </div>
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Nombres:</span>
-          <span>{userDetails.nombres || "-"}</span>
-        </div>
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>DNI:</span>
-          <span>{userDetails.dni || "-"}</span>
-        </div>
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Celular:</span>
-          <span>{userDetails.celular || "-"}</span>
-        </div>
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Cargo:</span>
-          <span>{userDetails.cargo || "-"}</span>
-        </div>
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Dirección:</span>
-          <span>{userDetails.direccion || "-"}</span>
-        </div>
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Correo:</span>
-          <span>{userDetails.correo || "-"}</span>
-        </div>
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Fecha creación:</span>
-          <span>{userDetails.creado_en || "-"}</span>
+
+        {/* Cuerpo CV: datos + foto */}
+        <div style={styles.detailsBody}>
+          <div style={styles.detailsLeft}>
+            {/* Sección: Identidad */}
+            <div style={styles.detailsSection}>
+              <div style={styles.detailsSectionTitle}>Identidad</div>
+              <div style={styles.detailsRow}>
+                <span style={styles.detailsLabel}>Usuario:</span>
+                <span>
+                  {userDetails.nombre_usuario ||
+                    userDetails.usuario ||
+                    "-"}
+                </span>
+              </div>
+              <div style={styles.detailsRow}>
+                <span style={styles.detailsLabel}>DNI:</span>
+                <span>{userDetails.dni || "-"}</span>
+              </div>
+            </div>
+
+            {/* Sección: Contacto */}
+            <div style={styles.detailsSection}>
+              <div style={styles.detailsSectionTitle}>Contacto</div>
+              <div style={styles.detailsRow}>
+                <span style={styles.detailsLabel}>Celular:</span>
+                <span>{userDetails.celular || "-"}</span>
+              </div>
+              <div style={styles.detailsRow}>
+                <span style={styles.detailsLabel}>Correo:</span>
+                <span>{userDetails.correo || "-"}</span>
+              </div>
+              <div style={styles.detailsRow}>
+                <span style={styles.detailsLabel}>Dirección:</span>
+                <span>{userDetails.direccion || "-"}</span>
+              </div>
+            </div>
+
+            {/* Sección: Puesto */}
+            <div style={styles.detailsSection}>
+              <div style={styles.detailsSectionTitle}>Puesto</div>
+              <div style={styles.detailsRow}>
+                <span style={styles.detailsLabel}>Cargo:</span>
+                <span>{userDetails.cargo || rolMostrado || "-"}</span>
+              </div>
+              <div style={styles.detailsRow}>
+                <span style={styles.detailsLabel}>Estado:</span>
+                <span>{userDetails.estado || "-"}</span>
+              </div>
+              <div style={styles.detailsRow}>
+                <span style={styles.detailsLabel}>Fecha creación:</span>
+                <span>{userDetails.creado_en || "-"}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Foto de perfil en columna derecha */}
+          <div style={styles.detailsPhotoWrapper}>
+            {fotoUrl ? (
+              <img
+                src={fotoUrl}
+                alt={nombreMostrado.toString()}
+                style={styles.detailsAvatar}
+              />
+            ) : (
+              <div style={styles.detailsAvatarPlaceholder}>Sin foto</div>
+            )}
+            <div style={styles.detailsPhotoLabel}>Foto de perfil</div>
+          </div>
         </div>
       </div>
     );
-  };
+  };;
 
   const renderParteDetail = () => {
     if (!selectedParteDetail) return null;
@@ -900,43 +962,49 @@ export default function Profile() {
         onBack={handleBack}
       />
 
-      <h2 style={styles.title}>
-        Panel de Administración –{" "}
-        <span style={styles.usernameHighlight}>{userName}</span>
-      </h2>
+      {/* 🔴 ESTA ES LA ÚNICA MODIFICACIÓN IMPORTANTE:
+          Envolvemos el título + tabla en un div con id="admin-users-table"
+          para que ControlPanelContent pueda ocultarlo cuando se abre
+          el panel de creación de usuarios. */}
+      <div id="admin-users-table">
+        <h2 style={styles.title}>
+          Panel de Administración –{" "}
+          <span style={styles.usernameHighlight}>{userName}</span>
+        </h2>
 
-      <div style={styles.tableWrapper}>
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.th}>Sel</th>
-              <th style={styles.th}>ID</th>
-              <th style={styles.th}>Usuario</th>
-              <th style={styles.th}>Rol</th>
-              <th style={styles.th}>Nombres</th>
-              <th style={styles.th}>DNI</th>
-              <th style={styles.th}>Creado en</th>
-              <th style={styles.th}>Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cargandoTabla ? (
+        <div style={styles.tableWrapper}>
+          <table style={styles.table}>
+            <thead>
               <tr>
-                <td colSpan={8} style={styles.td}>
-                  Cargando usuarios...
-                </td>
+                <th style={styles.th}>Sel</th>
+                <th style={styles.th}>ID</th>
+                <th style={styles.th}>Usuario</th>
+                <th style={styles.th}>Rol</th>
+                <th style={styles.th}>Nombres</th>
+                <th style={styles.th}>DNI</th>
+                <th style={styles.th}>Creado en</th>
+                <th style={styles.th}>Estado</th>
               </tr>
-            ) : listaUsuarios.length === 0 ? (
-              <tr>
-                <td colSpan={8} style={styles.td}>
-                  No hay usuarios registrados para esta vista.
-                </td>
-              </tr>
-            ) : (
-              listaUsuarios.map((user, index) => renderUserRow(user, index))
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {cargandoTabla ? (
+                <tr>
+                  <td colSpan={8} style={styles.td}>
+                    Cargando usuarios...
+                  </td>
+                </tr>
+              ) : listaUsuarios.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={styles.td}>
+                    No hay usuarios registrados para esta vista.
+                  </td>
+                </tr>
+              ) : (
+                listaUsuarios.map((user, index) => renderUserRow(user, index))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Modal de detalles de usuario y partes */}

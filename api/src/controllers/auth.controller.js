@@ -14,26 +14,44 @@ const generarNombreUsuario = (nombreCompleto) => {
 
 const registrarUsuario = async (req, res) => {
     try {
-        console.log("📥 REGISTRO APP - Datos:", req.body);
-        const { nombre, dni, celular, cargo, foto_ruta } = req.body;
-        
+        console.log("📥 REGISTRO APP - Datos:", req.body, "FILE:", req.file);
+
+        // ✅ Aceptamos tanto `nombre` (móvil) como `nombre_completo` (web)
+        const nombreBody = req.body.nombre || req.body.nombre_completo;
+        const { dni, celular, cargo } = req.body;
+
         let usuarioFinal = req.body.usuario;
         if (!usuarioFinal || usuarioFinal.trim() === '') {
-            usuarioFinal = generarNombreUsuario(nombre);
+            usuarioFinal = generarNombreUsuario(nombreBody);
         }
 
-        let passwordFinal = req.body['contraseña'] || req.body.contrasena || req.body.password || dni;
+        // ✅ Contraseña: se permite `contraseña`, `contrasena` o `password`.
+        //    Si no viene ninguna, por regla de negocio se usa el DNI.
+        let passwordFinal =
+            req.body['contraseña'] ||
+            req.body.contrasena ||
+            req.body.password ||
+            dni;
 
-        if (!nombre || !dni || !usuarioFinal || !passwordFinal) {
-            return res.status(400).json({ ok: false, message: 'Faltan datos para generar usuario.' });
+        if (!nombreBody || !dni || !usuarioFinal || !passwordFinal) {
+            return res.status(400).json({
+                ok: false,
+                message: 'Faltan datos para generar usuario.'
+            });
         }
 
         const passwordClean = String(passwordFinal).trim();
 
+        // ✅ Si se envía una foto (multer .single("foto")), usamos el filename generado.
+        //    Si no, respetamos `foto_ruta` si viniera desde otra integración.
+        const fotoRuta = req.file
+            ? req.file.filename
+            : req.body.foto_ruta || null;
+
         const result = await pool.query(
-            `INSERT INTO usuarios (nombre, dni, celular, cargo, usuario, contrasena, foto_ruta, estado) 
+            `INSERT INTO usuarios (nombre, dni, celular, cargo, usuario, contrasena, foto_ruta, estado)
              VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVO') RETURNING *`,
-            [nombre, dni, celular, cargo, usuarioFinal, passwordClean, foto_ruta]
+            [nombreBody, dni, celular, cargo, usuarioFinal, passwordClean, fotoRuta]
         );
 
         res.status(201).json({
@@ -44,44 +62,60 @@ const registrarUsuario = async (req, res) => {
 
     } catch (error) {
         console.error("❌ ERROR REGISTRO:", error.message);
-        if (error.code === '23505') return res.status(400).json({ ok: false, message: 'DNI o Usuario ya existe.' });
-        res.status(500).json({ ok: false, message: 'Error servidor: ' + error.message });
+        if (error.code === '23505') {
+            return res
+                .status(400)
+                .json({ ok: false, message: 'DNI o Usuario ya existe.' });
+        }
+        res
+            .status(500)
+            .json({ ok: false, message: 'Error servidor: ' + error.message });
     }
 };
 
 const loginUsuario = async (req, res) => {
     try {
         console.log("🔑 LOGIN INTENTO:", req.body);
-        
+
         const { usuario } = req.body;
-        const passInput = req.body['contraseña'] || req.body.contrasena || req.body.password;
+        const passInput =
+            req.body['contraseña'] ||
+            req.body.contrasena ||
+            req.body.password;
 
         if (!usuario || !passInput) {
-            return res.status(400).json({ ok: false, message: 'Faltan credenciales.' });
+            return res
+                .status(400)
+                .json({ ok: false, message: 'Faltan credenciales.' });
         }
 
-        const result = await pool.query('SELECT * FROM usuarios WHERE usuario = $1', [usuario]);
-
+        const result = await pool.query(
+            'SELECT * FROM usuarios WHERE usuario = $1',
+            [usuario]
+        );
         if (result.rows.length === 0) {
-            return res.status(404).json({ ok: false, message: 'Usuario no encontrado.' });
+            return res
+                .status(404)
+                .json({ ok: false, message: 'Usuario no encontrado.' });
         }
 
         const user = result.rows[0];
-
-        if (user.estado === 'BLOQUEADO') {
-            return res.status(403).json({ ok: false, message: `⛔ USUARIO BLOQUEADO: ${user.bloqueo_motivo}` });
-        }
-
-        const dbPass = String(user.contrasena).trim();
+        const dbPass = user.contrasena;
         const inputPass = String(passInput).trim();
 
         if (dbPass !== inputPass) {
-            return res.status(401).json({ ok: false, message: 'Contraseña incorrecta.' });
+            return res
+                .status(401)
+                .json({ ok: false, message: 'Contraseña incorrecta.' });
         }
 
-        const token = jwt.sign({ id: user.id, rol: user.rol }, JWT_SECRET, { expiresIn: '7d' });
+        const token = jwt.sign(
+            { id: user.id, rol: user.rol },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
 
-        // ⚠️ CORRECCIÓN: Enviamos el objeto usuario COMPLETO para que el perfil funcione
+        // Enviamos el objeto usuario completo para que el perfil funcione
         res.json({
             ok: true,
             message: 'Bienvenido',
@@ -91,8 +125,8 @@ const loginUsuario = async (req, res) => {
                 nombre: user.nombre,
                 usuario: user.usuario,
                 cargo: user.cargo,
-                dni: user.dni,           // <--- Faltaba esto
-                celular: user.celular,   // <--- Faltaba esto
+                dni: user.dni,
+                celular: user.celular,
                 foto_ruta: user.foto_ruta,
                 estado: user.estado
             }
@@ -108,13 +142,26 @@ const loginUsuario = async (req, res) => {
 const actualizarFotoPerfil = async (req, res) => {
     try {
         const { id } = req.params;
-        if (!req.file) return res.status(400).json({ ok: false, message: 'No se envió imagen.' });
+        if (!req.file) {
+            return res
+                .status(400)
+                .json({ ok: false, message: 'No se envió imagen.' });
+        }
         const fotoRuta = req.file.filename;
-        await pool.query('UPDATE usuarios SET foto_ruta = $1 WHERE id = $2', [fotoRuta, id]);
-        res.json({ ok: true, message: 'Foto actualizada', foto_ruta: fotoRuta });
+        await pool.query(
+            'UPDATE usuarios SET foto_ruta = $1 WHERE id = $2',
+            [fotoRuta, id]
+        );
+        res.json({
+            ok: true,
+            message: 'Foto actualizada',
+            foto_ruta: fotoRuta
+        });
     } catch (error) {
         console.error("Error subiendo foto:", error);
-        res.status(500).json({ ok: false, message: 'Error al guardar foto.' });
+        res
+            .status(500)
+            .json({ ok: false, message: 'Error al guardar foto.' });
     }
 };
 

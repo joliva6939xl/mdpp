@@ -98,23 +98,57 @@ const deleteUsuarios = async (req, res) => {
     }
 };
 
-// 6. DETALLES USUARIO
 const getUsuarioDetails = async (req, res) => {
     try {
         const { id } = req.params;
-        // Ahora traemos también estado y bloqueo_motivo
-        let result = await pool.query('SELECT id, nombre, dni, celular, cargo, usuario, foto_ruta, rol, creado_en, estado, bloqueo_motivo FROM usuarios WHERE id = $1', [id]);
-        
-        if (result.rows.length === 0) {
-            result = await pool.query('SELECT id, nombre_usuario AS nombre, rol, creado_en, estado, bloqueo_motivo FROM gerencia_usuarios WHERE id = $1', [id]);
-        }
-        
-        if (result.rows.length === 0) return res.status(404).json({ ok: false, message: 'Usuario no encontrado.' });
 
-        res.json({ ok: true, user: result.rows[0] });
+        // Primero buscamos en la tabla de usuarios APP e incluimos foto_ruta
+        let result = await pool.query(
+            `SELECT
+                id,
+                nombre,
+                dni,
+                celular,
+                cargo,
+                usuario,
+                creado_en,
+                estado,
+                bloqueo_motivo,
+                foto_ruta
+             FROM usuarios
+             WHERE id = $1`,
+            [id]
+        );
+
+        // Si no existe, buscamos en gerencia_usuarios (ADMIN)
+        if (result.rows.length === 0) {
+            result = await pool.query(
+                `SELECT
+                    id,
+                    nombre_usuario AS nombre,
+                    rol,
+                    creado_en,
+                    estado,
+                    bloqueo_motivo,
+                    NULL::text AS foto_ruta
+                 FROM gerencia_usuarios
+                 WHERE id = $1`,
+                [id]
+            );
+        }
+
+        if (result.rows.length === 0) {
+            return res
+                .status(404)
+                .json({ ok: false, message: 'Usuario no encontrado.' });
+        }
+
+        return res.json({ ok: true, user: result.rows[0] });
     } catch (error) {
         console.error('Error getUsuarioDetails:', error);
-        res.status(500).json({ ok: false, message: 'Error al obtener detalles.' });
+        return res
+            .status(500)
+            .json({ ok: false, message: 'Error al obtener detalles.' });
     }
 };
 
