@@ -105,6 +105,10 @@ interface ParteVirtual {
   conductor?: string;
   dni_conductor?: string;
 
+  // *** Campos reales en BD para incidencia y origen de atención ***
+  sumilla?: string; // Incidencia
+  asunto?: string;  // Origen de atención
+
   // Incidencia (varias posibles claves según backend)
   incidencia?: string;
   incidencia_nombre?: string;
@@ -116,12 +120,17 @@ interface ParteVirtual {
   origen_atencion_nombre?: string;
 
   ocurrencia?: string;
+
+  // Supervisores (dos nombres posibles)
   supervisor_zonal?: string;
   supervisor_general?: string;
+  sup_zonal?: string;
+  sup_general?: string;
 
   fotos?: ParteArchivo[];
   videos?: ParteArchivo[];
 }
+
 
 const Profile: React.FC = () => {
   const navigate = useNavigate();
@@ -580,19 +589,22 @@ const Profile: React.FC = () => {
 
     const fechaMostrada = p.fecha || p.creado_en || "-";
 
-    const incidenciaMostrada =
-      p.incidencia ||
-      p.incidencia_nombre ||
-      p.incidencia_detalle ||
-      p.tipo ||
-      p.descripcion ||
-      "-";
+  const incidenciaMostrada =
+    p.sumilla ||               // <-- aquí la incidencia real
+    p.incidencia ||
+    p.incidencia_nombre ||
+    p.incidencia_detalle ||
+    p.tipo ||
+    p.descripcion ||
+    "-";
 
-    const origenMostrado =
-      p.origen_atencion ||
-      p.origenAtencion ||
-      p.origen_atencion_nombre ||
-      "-";
+  const origenMostrado =
+    p.asunto ||                // <-- aquí el origen de atención real
+    p.origen_atencion ||
+   p.origenAtencion ||
+    p.origen_atencion_nombre ||
+    "-";
+
 
     return (
       <div>
@@ -668,13 +680,14 @@ const Profile: React.FC = () => {
           <span>{p.ocurrencia || p.parte_fisico || p.descripcion || "-"}</span>
         </div>
 
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Supervisor Zonal:</span>
-          <span>{p.supervisor_zonal || "-"}</span>
-        </div>
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Supervisor General:</span>
-          <span>{p.supervisor_general || "-"}</span>
+      <div style={styles.detailsRow}>
+    <span style={styles.detailsLabel}>Supervisor Zonal:</span>
+    <span>{p.supervisor_zonal || p.sup_zonal || "-"}</span>
+  </div>
+  <div style={styles.detailsRow}>
+    <span style={styles.detailsLabel}>Supervisor General:</span>
+    <span>{p.supervisor_general || p.sup_general || "-"}</span>
+
         </div>
       </div>
     );
@@ -880,13 +893,14 @@ const Profile: React.FC = () => {
                         <p>Este usuario no tiene partes registrados.</p>
                       ) : (
                         usuarioPartes.map((parte) => {
-                          const resumenIncidencia =
-                            parte.incidencia ||
-                            parte.incidencia_nombre ||
-                            parte.incidencia_detalle ||
-                            parte.tipo ||
-                            parte.descripcion ||
-                            "Sin tipo";
+  const resumenIncidencia =
+    parte.sumilla ||                 // <-- Incidencia real
+    parte.incidencia ||
+    parte.incidencia_nombre ||
+    parte.incidencia_detalle ||
+    parte.tipo ||
+    parte.descripcion ||
+    "Sin tipo";
 
                           const resumenUbicacion = [
                             parte.sector && `Sector ${parte.sector}`,
