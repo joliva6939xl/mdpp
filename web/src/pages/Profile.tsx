@@ -10,6 +10,7 @@ import {
   obtenerUsuarioDetallesAdmin,
   obtenerUsuarioPartesAdmin,
 } from "../services/adminService";
+import { profileStyles as styles } from "./Profile.styles";
 
 const BASE_URL = "http://localhost:4000";
 
@@ -49,6 +50,10 @@ interface UserDetails extends UsuarioSistema {
   cargo?: string;
   direccion?: string;
   correo?: string;
+  foto_ruta?: string;
+  foto?: string;
+  fotoPerfil?: string;
+  foto_perfil?: string;
 }
 
 interface ParteArchivo {
@@ -58,7 +63,6 @@ interface ParteArchivo {
   nombre_original: string;
 }
 
-// Forma flexible de archivos que devuelve la API
 interface RawArchivoParte {
   id?: number;
   tipo?: string;
@@ -78,36 +82,51 @@ interface RawArchivoParte {
 interface ParteVirtual {
   id: number;
   usuario_id: number;
+
+  // Campos base
   sector?: string;
   parte_fisico?: string;
   zona?: string;
   turno?: string;
-  lugar?: string;
-  fecha?: string;
-  hora?: string;
+  tipo?: string;
+  descripcion?: string;
+  ubicacion_exacta?: string;
+  hora_inicio?: string;
   hora_fin?: string;
   unidad_tipo?: string;
   unidad_numero?: string;
   placa?: string;
+  estado?: string;
+  creado_en?: string;
+
+  // Campos extra que usa la app
+  fecha?: string;
+  lugar?: string;
   conductor?: string;
   dni_conductor?: string;
-  sumilla?: string;
-  asunto?: string;
-  ocurrencia?: string;
+
+  // Incidencia (varias posibles claves según backend)
+  incidencia?: string;
+  incidencia_nombre?: string;
+  incidencia_detalle?: string;
+
+  // Origen de atención (varias posibles claves)
   origen_atencion?: string;
-  sup_zonal?: string;
-  sup_general?: string;
+  origenAtencion?: string;
+  origen_atencion_nombre?: string;
+
+  ocurrencia?: string;
   supervisor_zonal?: string;
   supervisor_general?: string;
-  creado_en?: string;
+
   fotos?: ParteArchivo[];
   videos?: ParteArchivo[];
 }
 
-export default function Profile() {
+const Profile: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const userName = location.state?.username || "Admin";
+  const userName = location.state?.username || "ADMIN";
 
   const [vistaActual, setVistaActual] = useState<"APP" | "ADMIN">("APP");
   const [listaUsuarios, setListaUsuarios] = useState<UsuarioSistema[]>([]);
@@ -140,6 +159,9 @@ export default function Profile() {
   const [blockReason, setBlockReason] = useState("");
   const [blockActionLoading, setBlockActionLoading] = useState(false);
 
+  // Hover en partes
+  const [hoveredParteId, setHoveredParteId] = useState<number | null>(null);
+
   // --- LISTA DE USUARIOS ---
   const fetchUsuarios = useCallback(async () => {
     setCargandoTabla(true);
@@ -148,12 +170,13 @@ export default function Profile() {
       const { resp, json } = await obtenerUsuariosSistema(vistaActual);
 
       if (resp.ok && json.ok) {
-        const usuariosConTipo: UsuarioSistema[] = (json.usuarios || []).map(
-          (u) => ({
-            ...(u as Omit<UsuarioSistema, "tipo_tabla">),
-            tipo_tabla: vistaActual,
-          })
-        );
+        const usuariosRaw = (json.usuarios || []) as unknown as UsuarioSistema[];
+
+        const usuariosConTipo: UsuarioSistema[] = usuariosRaw.map((u) => ({
+          ...u,
+          tipo_tabla: vistaActual,
+        }));
+
         setListaUsuarios(usuariosConTipo);
       } else {
         alert("Error obteniendo usuarios: " + (json.message || ""));
@@ -171,45 +194,46 @@ export default function Profile() {
   }, [fetchUsuarios]);
 
   const handleLogout = () => {
+    localStorage.removeItem("adminToken");
     navigate("/login");
   };
 
   const handleBack = () => {
-    navigate("/login");
+    navigate("/");
   };
 
-  const handleUserTargetChange = (value: "APP" | "ADMIN") => {
-    setVistaActual(value);
-    setSelectedUserIds([]);
-    setIsSelectionModeActive(false);
-    setCurrentMode("NONE");
+  const handleToggleVista = (vista: "APP" | "ADMIN") => {
+    setVistaActual(vista);
   };
 
-  const handleSelectModeChange = (
-    mode: "DELETE" | "BLOCK" | "UNBLOCK" | "NONE"
-  ) => {
+  const toggleSelect = (id: number) => {
+    if (!isSelectionModeActive) return;
+    setSelectedUserIds((prev) =>
+      prev.includes(id) ? prev.filter((uid) => uid !== id) : [...prev, id]
+    );
+  };
+
+  const handleModeChange = (mode: "DELETE" | "BLOCK" | "UNBLOCK" | "NONE") => {
     if (mode === "NONE") {
       setIsSelectionModeActive(false);
-      setCurrentMode("NONE");
       setSelectedUserIds([]);
-      return;
+    } else {
+      setIsSelectionModeActive(true);
+      setSelectedUserIds([]);
     }
-    setIsSelectionModeActive(true);
     setCurrentMode(mode);
   };
 
-  const handleDeleteUsers = async () => {
+  const handleDeleteSelected = async () => {
     if (selectedUserIds.length === 0) {
-      alert("No hay usuarios seleccionados.");
+      alert("No hay usuarios seleccionados para eliminar.");
       return;
     }
-
     if (
-      !window.confirm(
-        "¿Seguro que deseas eliminar los usuarios seleccionados?"
-      )
-    )
+      !window.confirm("¿Seguro que deseas eliminar los usuarios seleccionados?")
+    ) {
       return;
+    }
 
     try {
       const usersPayload = selectedUserIds.map((id) => {
@@ -218,21 +242,19 @@ export default function Profile() {
       });
 
       const { resp, json } = await eliminarUsuariosSeleccionados(usersPayload);
-
-      if (resp.ok && json.ok) {
-        alert("Usuarios eliminados correctamente.");
-        fetchUsuarios();
-        setSelectedUserIds([]);
-      } else {
-        alert("Error eliminando usuarios: " + (json.message || ""));
+      if (!resp.ok) {
+        alert(json.message || "Error al eliminar usuarios.");
+        return;
       }
+
+      alert(json.message || "Usuarios eliminados correctamente.");
+      await fetchUsuarios();
     } catch (error) {
-      console.error(error);
-      alert("Error de conexión.");
+      console.error("Error al eliminar usuarios:", error);
+      alert("Error de conexión al eliminar usuarios.");
     }
   };
 
-  // --- ABRIR MODAL DE BLOQUEO ---
   const handleOpenBlockModal = () => {
     if (selectedUserIds.length === 0) {
       alert("No hay usuarios seleccionados.");
@@ -258,43 +280,87 @@ export default function Profile() {
       const { resp, json } = await bloqueoUsuarios(
         usersPayload,
         accion,
-        blockReason
+        blockReason.trim()
       );
 
-      if (resp.ok && json.ok) {
-        alert(
-          accion === "BLOQUEAR"
-            ? "Usuarios bloqueados correctamente."
-            : "Usuarios desbloqueados correctamente."
-        );
-        setShowBlockModal(false);
-        fetchUsuarios();
-      } else {
-        alert(`Error: ${json.message || "No se pudo aplicar la acción."}`);
+      if (!resp.ok) {
+        alert(json.message || "Error al bloquear/desbloquear usuarios.");
+        return;
       }
+
+      alert(json.message || "Acción realizada correctamente.");
+      setShowBlockModal(false);
+      setSelectedUserIds([]);
+      setIsSelectionModeActive(false);
+      setCurrentMode("NONE");
+      await fetchUsuarios();
     } catch (error) {
-      console.error(error);
-      alert("Error de conexión al aplicar bloqueo/desbloqueo.");
+      console.error("Error al bloquear/desbloquear usuarios:", error);
+      alert("Error de conexión.");
     } finally {
       setBlockActionLoading(false);
     }
   };
 
-  // --- MODO SELECCIÓN ---
-  const toggleSelect = (id: number) => {
-    setSelectedUserIds((prev) =>
-      prev.includes(id) ? prev.filter((uid) => uid !== id) : [...prev, id]
-    );
+  const handleRowClick = async (user: UsuarioSistema) => {
+    if (isSelectionModeActive) {
+      toggleSelect(user.id);
+      return;
+    }
+
+    setUserDetails(null);
+    setUsuarioPartes([]);
+    setSelectedParteDetail(null);
+    setParteDetailTab("INFO");
+    setCurrentTabView("DETAILS");
+    setShowDetailsModal(true);
+    setLoadingModal(true);
+
+    try {
+      const { resp: detailResp, json: detailJson } =
+        await obtenerUsuarioDetallesAdmin(user.id);
+
+      if (detailResp.ok) {
+        const rawUser =
+          (detailJson.user ||
+            detailJson.usuario ||
+            detailJson.data) as unknown as UserDetails | undefined;
+
+        if (rawUser) {
+          setUserDetails(rawUser);
+        }
+      }
+
+      const { resp: partesResp, json: partesJson } =
+        await obtenerUsuarioPartesAdmin(user.id);
+
+      if (partesResp.ok) {
+        const listaRaw =
+          partesJson.partes ||
+          partesJson.data ||
+          partesJson.rows ||
+          partesJson.lista ||
+          [];
+
+        const lista = listaRaw as unknown as ParteVirtual[];
+        setUsuarioPartes(lista);
+      } else {
+        console.warn("No se pudieron cargar partes:", partesJson);
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoadingModal(false);
+    }
   };
 
-  // --- CLICK EN UN PARTE (CARGAR DETALLE + MULTIMEDIA) ---
   const handleParteClick = async (parteId: number) => {
-    setLoadingModal(true);
     try {
+      setParteDetailTab("INFO");
       const { resp, json } = await obtenerPartePorIdAdmin(parteId);
 
-      if (!resp.ok || json.ok === false) {
-        alert(`Error: ${json.message || "No se pudo obtener el parte."}`);
+      if (!resp.ok) {
+        alert(json.message || "Error al obtener detalle de parte.");
         return;
       }
 
@@ -310,33 +376,9 @@ export default function Profile() {
         return;
       }
 
-      const baseParte = rawBase as unknown as ParteVirtual;
+      const parteCruda = rawBase as unknown as ParteVirtual;
 
-      const origenArchivos =
-        json.archivos ||
-        json.media ||
-        json.multimedia ||
-        json.archivos_parte ||
-        json.parte_archivos ||
-        (baseParte as { archivos?: RawArchivoParte[] }).archivos ||
-        (baseParte as { media?: RawArchivoParte[] }).media ||
-        [];
-
-      const archivosCrudos: RawArchivoParte[] = Array.isArray(origenArchivos)
-        ? (origenArchivos as RawArchivoParte[])
-        : [];
-
-      let fotos: ParteArchivo[] = Array.isArray(
-        (baseParte as { fotos?: ParteArchivo[] }).fotos
-      )
-        ? ((baseParte as { fotos?: ParteArchivo[] }).fotos as ParteArchivo[])
-        : [];
-      let videos: ParteArchivo[] = Array.isArray(
-        (baseParte as { videos?: ParteArchivo[] }).videos
-      )
-        ? ((baseParte as { videos?: ParteArchivo[] }).videos as ParteArchivo[])
-        : [];
-
+      const archivosCrudos: RawArchivoParte[] = json.archivos || [];
       if (archivosCrudos.length > 0) {
         const mapeados: ParteArchivo[] = archivosCrudos.map((a, idx) => {
           const tipoRaw = (
@@ -367,328 +409,38 @@ export default function Profile() {
             ruta.toLowerCase().endsWith(".mov") ||
             ruta.toLowerCase().endsWith(".avi");
 
-          const tipo: "foto" | "video" = esVideo ? "video" : "foto";
-
           return {
             id: a.id ?? idx + 1,
-            tipo,
-            ruta: getFotoUrl(ruta),
+            tipo: esVideo ? "video" : "foto",
+            ruta,
             nombre_original: nombre,
           };
         });
 
-        const nuevasFotos = mapeados.filter((m) => m.tipo === "foto");
-        const nuevosVideos = mapeados.filter((m) => m.tipo === "video");
-
-        if (nuevasFotos.length) {
-          fotos = fotos.concat(nuevasFotos);
-        }
-        if (nuevosVideos.length) {
-          videos = videos.concat(nuevosVideos);
-        }
+        parteCruda.fotos = mapeados.filter((m) => m.tipo === "foto");
+        parteCruda.videos = mapeados.filter((m) => m.tipo === "video");
       }
 
-      const parteConMultimedia: ParteVirtual = {
-        ...baseParte,
-        fotos,
-        videos,
-      };
-
-      setSelectedParteDetail(parteConMultimedia);
-      setParteDetailTab("INFO");
-
-      console.log("Parte detalle cargada:", parteConMultimedia);
+      setSelectedParteDetail(parteCruda);
     } catch (error) {
-      console.error(error);
-      alert("Error de conexión.");
-    } finally {
-      setLoadingModal(false);
+      console.error("Error al cargar detalle de parte:", error);
+      alert("Error de conexión al cargar detalle.");
     }
   };
 
-  // --- CLICK EN FILA DE USUARIO ---
-  const handleRowClick = async (user: UsuarioSistema) => {
-    if (isSelectionModeActive) return;
-
-    setUserDetails(null);
-    setUsuarioPartes([]);
-    setSelectedParteDetail(null);
-    setParteDetailTab("INFO");
-    setCurrentTabView("DETAILS");
-    setShowDetailsModal(true);
-    setLoadingModal(true);
-
-    try {
-      const { resp: detailResp, json: detailJson } =
-        await obtenerUsuarioDetallesAdmin(user.id);
-
-      if (detailResp.ok) {
-        const rawUser =
-          detailJson.user || detailJson.usuario || detailJson.data;
-
-        if (rawUser) {
-          setUserDetails(rawUser as unknown as UserDetails);
-        }
-      }
-
-      if (user.tipo_tabla === "APP") {
-        const { resp: partesResp, json: partesJson } =
-          await obtenerUsuarioPartesAdmin(user.id);
-
-        if (partesResp.ok) {
-          const listaRaw =
-            partesJson.partes ||
-            partesJson.data ||
-            partesJson.rows ||
-            partesJson.lista ||
-            [];
-
-          const lista = listaRaw as unknown as ParteVirtual[];
-          setUsuarioPartes(lista);
-        } else {
-          console.warn("No se pudieron cargar partes:", partesJson);
-        }
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoadingModal(false);
-    }
-  };
-
-  // --- ESTILOS EN LÍNEA ---
-  const styles: { [key: string]: React.CSSProperties } = {
-    container: {
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      minHeight: "100vh",
-      backgroundColor: "#f4f4f4",
-      fontFamily: "Arial, sans-serif",
-    },
-    title: {
-      fontSize: "1.6rem",
-      fontWeight: "bold",
-      marginBottom: "1rem",
-      color: "#333",
-      textAlign: "center",
-    },
-    usernameHighlight: {
-      color: "#1976d2",
-    },
-    tableWrapper: {
-      width: "95%",
-      maxWidth: "1200px",
-      marginBottom: "2rem",
-      borderRadius: "8px",
-      overflow: "hidden",
-      boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
-      backgroundColor: "#fff",
-    },
-    table: {
-      width: "100%",
-      borderCollapse: "collapse",
-      fontSize: "0.9rem",
-    },
-    th: {
-      backgroundColor: "#1976d2",
-      color: "#fff",
-      padding: "0.75rem",
-      textAlign: "left",
-    },
-    td: {
-      padding: "0.75rem",
-      borderBottom: "1px solid #ddd",
-      cursor: "pointer",
-    },
-    rowSelected: {
-      backgroundColor: "#e3f2fd",
-    },
-    rowHover: {
-      backgroundColor: "#f5f5f5",
-    },
-    actionsRow: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginTop: "1rem",
-      width: "95%",
-      maxWidth: "1200px",
-    },
-    filterButton: {
-      padding: "0.5rem 1rem",
-      fontSize: "0.9rem",
-      borderRadius: "4px",
-      border: "none",
-      backgroundColor: "#1976d2",
-      color: "#fff",
-      cursor: "pointer",
-      marginRight: "0.5rem",
-    },
-    dangerButton: {
-      backgroundColor: "#d32f2f",
-    },
-    blockButton: {
-      backgroundColor: "#f57c00",
-    },
-    secondaryButton: {
-      padding: "0.5rem 1rem",
-      fontSize: "0.9rem",
-      borderRadius: "4px",
-      border: "1px solid #1976d2",
-      backgroundColor: "#fff",
-      color: "#1976d2",
-      cursor: "pointer",
-    },
-    modalOverlay: {
-      position: "fixed",
-      top: 0,
-      left: 0,
-      width: "100vw",
-      height: "100vh",
-      backgroundColor: "rgba(0, 0, 0, 0.4)",
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-      zIndex: 9999,
-    },
-    modalContent: {
-      backgroundColor: "#fff",
-      padding: "1.5rem",
-      borderRadius: "8px",
-      width: "90%",
-      maxWidth: "900px",
-      maxHeight: "90vh",
-      overflowY: "auto",
-      boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
-    },
-    modalHeader: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: "1rem",
-    },
-    modalTitle: {
-      fontSize: "1.2rem",
-      fontWeight: "bold",
-    },
-    closeButton: {
-      background: "none",
-      border: "none",
-      fontSize: "1.2rem",
-      cursor: "pointer",
-    },
-    detailsRow: {
-      display: "flex",
-      justifyContent: "space-between",
-      marginBottom: "0.5rem",
-    },
-    detailsLabel: {
-      fontWeight: "bold",
-      marginRight: "0.5rem",
-    },
-    tabsContainer: {
-      display: "flex",
-      marginBottom: "1rem",
-      borderBottom: "1px solid #ddd",
-    },
-    tabButton: {
-      padding: "0.5rem 1rem",
-      cursor: "pointer",
-      border: "none",
-      borderBottom: "2px solid transparent",
-      backgroundColor: "transparent",
-      fontWeight: "bold",
-    },
-    tabButtonActive: {
-      borderBottom: "2px solid #1976d2",
-      color: "#1976d2",
-    },
-    partesList: {
-      maxHeight: "300px",
-      overflowY: "auto",
-      border: "1px solid #ddd",
-      borderRadius: "4px",
-      padding: "0.5rem",
-    },
-    parteItem: {
-      padding: "0.5rem",
-      borderBottom: "1px solid #eee",
-      cursor: "pointer",
-    },
-    parteItemHover: {
-      backgroundColor: "#f5f5f5",
-    },
-    bloqueadoLabel: {
-      color: "#d32f2f",
-      fontWeight: "bold",
-      marginLeft: "0.5rem",
-    },
-    multimediaGrid: {
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-      gap: "0.75rem",
-      marginTop: "1rem",
-    },
-    multimediaItem: {
-      borderRadius: "4px",
-      overflow: "hidden",
-      border: "1px solid #ddd",
-      padding: "0.25rem",
-      backgroundColor: "#fafafa",
-    },
-    multimediaImage: {
-      width: "100%",
-      height: "auto",
-      borderRadius: "4px",
-    },
-    multimediaVideo: {
-      width: "100%",
-      borderRadius: "4px",
-    },
-    blockModalContent: {
-      backgroundColor: "#fff",
-      padding: "1.5rem",
-      borderRadius: "8px",
-      width: "90%",
-      maxWidth: "500px",
-    },
-    blockTextarea: {
-      width: "100%",
-      minHeight: "80px",
-      marginTop: "0.5rem",
-      marginBottom: "1rem",
-      padding: "0.5rem",
-      borderRadius: "4px",
-      border: "1px solid #ccc",
-      fontFamily: "inherit",
-      fontSize: "0.9rem",
-    },
-    blockModalButtons: {
-      display: "flex",
-      justifyContent: "flex-end",
-      gap: "0.5rem",
-    },
-  };
-
+  // --- RENDER TABLA DE USUARIOS ---
   const renderUserRow = (user: UsuarioSistema, index: number) => {
     const isSelected = selectedUserIds.includes(user.id);
     const isBlocked = user.estado === "BLOQUEADO";
-
-    const baseRowStyle: React.CSSProperties = {
-      backgroundColor: index % 2 === 0 ? "#ffffff" : "#f9f9f9", // filas zebra
-    };
-
     return (
       <tr
-        key={`${user.tipo_tabla}-${user.id}`}
+        key={user.id}
         style={{
-          ...baseRowStyle,
-          ...(isSelected ? styles.rowSelected : {}),
+          ...(index % 2 === 0 ? {} : { backgroundColor: "#f9f9f9" }),
+          ...(isBlocked ? styles.blockedRow : {}),
+          ...(isSelectionModeActive ? styles.rowHover : {}),
         }}
-        onClick={() =>
-          isSelectionModeActive ? toggleSelect(user.id) : handleRowClick(user)
-        }
+        onClick={() => handleRowClick(user)}
       >
         <td>
           {isSelectionModeActive && (
@@ -707,36 +459,28 @@ export default function Profile() {
         <td>{user.dni || "-"}</td>
         <td>{user.creado_en || "-"}</td>
         <td>
-          {isBlocked ? (
+          {user.estado || "-"}
+          {user.estado === "BLOQUEADO" && (
             <span style={styles.bloqueadoLabel}>
-              BLOQUEADO {user.bloqueo_motivo ? `(${user.bloqueo_motivo})` : ""}
+              {" "}
+              (Motivo: {user.bloqueo_motivo || "No especificado"})
             </span>
-          ) : (
-            "ACTIVO"
           )}
         </td>
       </tr>
     );
   };
 
-      const renderUserDetails = () => {
+  // --- RENDER DETALLE DE USUARIO (CV) ---
+  const renderUserDetails = () => {
     if (!userDetails) return null;
 
-    // Tipo auxiliar SOLO para las posibles claves de foto
-    type UserDetailsWithPhoto = {
-      foto_ruta?: string | null;
-      foto?: string | null;
-      fotoPerfil?: string | null;
-      foto_perfil?: string | null;
-    };
-
-    const userWithPhoto = userDetails as UserDetailsWithPhoto;
-
     const rawFoto =
-      userWithPhoto.foto_ruta ??
-      userWithPhoto.foto ??
-      userWithPhoto.fotoPerfil ??
-      userWithPhoto.foto_perfil;
+      userDetails.foto_ruta ??
+      userDetails.foto ??
+      userDetails.fotoPerfil ??
+      userDetails.foto_perfil ??
+      "";
 
     const fotoUrl = rawFoto ? getFotoUrl(String(rawFoto)) : "";
 
@@ -747,7 +491,6 @@ export default function Profile() {
 
     return (
       <div style={styles.detailsContainer}>
-        {/* Encabezado tipo CV */}
         <div style={styles.detailsHeader}>
           <div>
             <div style={styles.detailsHeaderName}>{nombreMostrado}</div>
@@ -757,22 +500,20 @@ export default function Profile() {
           </div>
 
           <div style={styles.detailsHeaderChip}>
-            {rolMostrado.toString().toUpperCase()}
+            {typeof rolMostrado === "string"
+              ? rolMostrado.toUpperCase()
+              : rolMostrado}
           </div>
         </div>
 
-        {/* Cuerpo CV: datos + foto */}
         <div style={styles.detailsBody}>
           <div style={styles.detailsLeft}>
-            {/* Sección: Identidad */}
             <div style={styles.detailsSection}>
               <div style={styles.detailsSectionTitle}>Identidad</div>
               <div style={styles.detailsRow}>
                 <span style={styles.detailsLabel}>Usuario:</span>
                 <span>
-                  {userDetails.nombre_usuario ||
-                    userDetails.usuario ||
-                    "-"}
+                  {userDetails.nombre_usuario || userDetails.usuario || "-"}
                 </span>
               </div>
               <div style={styles.detailsRow}>
@@ -781,7 +522,6 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Sección: Contacto */}
             <div style={styles.detailsSection}>
               <div style={styles.detailsSectionTitle}>Contacto</div>
               <div style={styles.detailsRow}>
@@ -798,7 +538,6 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Sección: Puesto */}
             <div style={styles.detailsSection}>
               <div style={styles.detailsSectionTitle}>Puesto</div>
               <div style={styles.detailsRow}>
@@ -816,12 +555,11 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* Foto de perfil en columna derecha */}
           <div style={styles.detailsPhotoWrapper}>
             {fotoUrl ? (
               <img
                 src={fotoUrl}
-                alt={nombreMostrado.toString()}
+                alt={String(nombreMostrado)}
                 style={styles.detailsAvatar}
               />
             ) : (
@@ -832,12 +570,29 @@ export default function Profile() {
         </div>
       </div>
     );
-  };;
+  };
 
+  // --- RENDER DETALLE DE PARTE ---
   const renderParteDetail = () => {
     if (!selectedParteDetail) return null;
 
     const p = selectedParteDetail;
+
+    const fechaMostrada = p.fecha || p.creado_en || "-";
+
+    const incidenciaMostrada =
+      p.incidencia ||
+      p.incidencia_nombre ||
+      p.incidencia_detalle ||
+      p.tipo ||
+      p.descripcion ||
+      "-";
+
+    const origenMostrado =
+      p.origen_atencion ||
+      p.origenAtencion ||
+      p.origen_atencion_nombre ||
+      "-";
 
     return (
       <div>
@@ -845,6 +600,12 @@ export default function Profile() {
           <span style={styles.detailsLabel}>ID Parte:</span>
           <span>{p.id}</span>
         </div>
+
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Fecha:</span>
+          <span>{fechaMostrada}</span>
+        </div>
+
         <div style={styles.detailsRow}>
           <span style={styles.detailsLabel}>Sector:</span>
           <span>{p.sector || "-"}</span>
@@ -857,32 +618,33 @@ export default function Profile() {
           <span style={styles.detailsLabel}>Turno:</span>
           <span>{p.turno || "-"}</span>
         </div>
+
         <div style={styles.detailsRow}>
           <span style={styles.detailsLabel}>Lugar:</span>
-          <span>{p.lugar || "-"}</span>
+          <span>{p.lugar || p.ubicacion_exacta || "-"}</span>
         </div>
-        <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Fecha:</span>
-          <span>{p.fecha || "-"}</span>
-        </div>
+
         <div style={styles.detailsRow}>
           <span style={styles.detailsLabel}>Hora inicio:</span>
-          <span>{p.hora || "-"}</span>
+          <span>{p.hora_inicio || "-"}</span>
         </div>
         <div style={styles.detailsRow}>
           <span style={styles.detailsLabel}>Hora fin:</span>
           <span>{p.hora_fin || "-"}</span>
         </div>
+
         <div style={styles.detailsRow}>
           <span style={styles.detailsLabel}>Unidad:</span>
           <span>
-            {p.unidad_tipo || ""} {p.unidad_numero || ""}
+            {(p.unidad_tipo || "").toString()}{" "}
+            {(p.unidad_numero || "").toString()}
           </span>
         </div>
         <div style={styles.detailsRow}>
           <span style={styles.detailsLabel}>Placa:</span>
           <span>{p.placa || "-"}</span>
         </div>
+
         <div style={styles.detailsRow}>
           <span style={styles.detailsLabel}>Conductor:</span>
           <span>{p.conductor || "-"}</span>
@@ -891,55 +653,67 @@ export default function Profile() {
           <span style={styles.detailsLabel}>DNI Conductor:</span>
           <span>{p.dni_conductor || "-"}</span>
         </div>
+
         <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Sumilla / Incidencia:</span>
-          <span>{p.sumilla || "-"}</span>
+          <span style={styles.detailsLabel}>Incidencia:</span>
+          <span>{incidenciaMostrada}</span>
         </div>
         <div style={styles.detailsRow}>
-          <span style={styles.detailsLabel}>Asunto / Origen atención:</span>
-          <span>{p.asunto || p.origen_atencion || "-"}</span>
+          <span style={styles.detailsLabel}>Origen de atención:</span>
+          <span>{origenMostrado}</span>
         </div>
+
+        <div style={styles.detailsRow}>
+          <span style={styles.detailsLabel}>Ocurrencia:</span>
+          <span>{p.ocurrencia || p.parte_fisico || p.descripcion || "-"}</span>
+        </div>
+
         <div style={styles.detailsRow}>
           <span style={styles.detailsLabel}>Supervisor Zonal:</span>
-          <span>{p.sup_zonal || p.supervisor_zonal || "-"}</span>
+          <span>{p.supervisor_zonal || "-"}</span>
         </div>
         <div style={styles.detailsRow}>
           <span style={styles.detailsLabel}>Supervisor General:</span>
-          <span>{p.sup_general || p.supervisor_general || "-"}</span>
+          <span>{p.supervisor_general || "-"}</span>
         </div>
       </div>
     );
   };
 
-  const renderMultimedia = () => {
+  const renderParteMultimedia = () => {
     if (!selectedParteDetail) return null;
 
     const fotos = selectedParteDetail.fotos || [];
     const videos = selectedParteDetail.videos || [];
+    const tieneArchivos = fotos.length > 0 || videos.length > 0;
 
-    if (fotos.length === 0 && videos.length === 0) {
-      return <p>No hay archivos multimedia registrados para este parte.</p>;
+    if (!tieneArchivos) {
+      return <p>Este parte no tiene archivos multimedia.</p>;
     }
+
+    const todos: ParteArchivo[] = [
+      ...fotos.map((f) => ({ ...f, tipo: "foto" as const })),
+      ...videos.map((v) => ({ ...v, tipo: "video" as const })),
+    ];
 
     return (
       <div style={styles.multimediaGrid}>
-        {fotos.map((foto) => (
-          <div key={`foto-${foto.id}`} style={styles.multimediaItem}>
-            <img
-              src={foto.ruta}
-              alt={foto.nombre_original}
-              style={styles.multimediaImage}
-            />
-            <div>{foto.nombre_original}</div>
-          </div>
-        ))}
-        {videos.map((video) => (
-          <div key={`video-${video.id}`} style={styles.multimediaItem}>
-            <video controls style={styles.multimediaVideo}>
-              <source src={video.ruta} />
-              Tu navegador no soporta video.
-            </video>
-            <div>{video.nombre_original}</div>
+        {todos.map((archivo) => (
+          <div key={archivo.id} style={styles.multimediaItem}>
+            {archivo.tipo === "foto" ? (
+              <img
+                src={getFotoUrl(archivo.ruta)}
+                alt={archivo.nombre_original}
+                style={styles.multimediaImage}
+              />
+            ) : (
+              <video
+                controls
+                src={getFotoUrl(archivo.ruta)}
+                style={styles.multimediaVideo}
+              />
+            )}
+            <div style={styles.multimediaName}>{archivo.nombre_original}</div>
           </div>
         ))}
       </div>
@@ -948,66 +722,106 @@ export default function Profile() {
 
   return (
     <div style={styles.container}>
+      <h2 style={styles.title}>
+        Panel de Administración –{" "}
+        <span style={styles.usernameHighlight}>{userName}</span>
+      </h2>
+
       <ControlPanel
         userName={userName}
         selectedUserCount={selectedUserIds.length}
         isSelectionModeActive={isSelectionModeActive}
         currentMode={currentMode}
         currentUserTarget={vistaActual}
-        onUserTargetChange={handleUserTargetChange}
-        onSelectModeChange={handleSelectModeChange}
-        onDeleteUsers={handleDeleteUsers}
+        onUserTargetChange={handleToggleVista}
+        onSelectModeChange={handleModeChange}
+        onDeleteUsers={handleDeleteSelected}
         onOpenBlockModal={handleOpenBlockModal}
         onLogout={handleLogout}
         onBack={handleBack}
       />
 
-      {/* 🔴 ESTA ES LA ÚNICA MODIFICACIÓN IMPORTANTE:
-          Envolvemos el título + tabla en un div con id="admin-users-table"
-          para que ControlPanelContent pueda ocultarlo cuando se abre
-          el panel de creación de usuarios. */}
-      <div id="admin-users-table">
-        <h2 style={styles.title}>
-          Panel de Administración –{" "}
-          <span style={styles.usernameHighlight}>{userName}</span>
-        </h2>
-
-        <div style={styles.tableWrapper}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Sel</th>
-                <th style={styles.th}>ID</th>
-                <th style={styles.th}>Usuario</th>
-                <th style={styles.th}>Rol</th>
-                <th style={styles.th}>Nombres</th>
-                <th style={styles.th}>DNI</th>
-                <th style={styles.th}>Creado en</th>
-                <th style={styles.th}>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cargandoTabla ? (
-                <tr>
-                  <td colSpan={8} style={styles.td}>
-                    Cargando usuarios...
-                  </td>
-                </tr>
-              ) : listaUsuarios.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={styles.td}>
-                    No hay usuarios registrados para esta vista.
-                  </td>
-                </tr>
-              ) : (
-                listaUsuarios.map((user, index) => renderUserRow(user, index))
-              )}
-            </tbody>
-          </table>
+      <div style={styles.filterRow}>
+        <div style={styles.filterGroup}>
+          <button
+            style={styles.filterButton}
+            onClick={() => setVistaActual("APP")}
+          >
+            Usuarios APP
+          </button>
+          <button
+            style={styles.filterButtonSecondary}
+            onClick={() => setVistaActual("ADMIN")}
+          >
+            Usuarios ADMIN
+          </button>
+        </div>
+        <div style={styles.filterGroup}>
+          {isSelectionModeActive && (
+            <span style={styles.selectionInfo}>
+              Seleccionados: {selectedUserIds.length}
+            </span>
+          )}
+          <button
+            style={styles.secondaryButton}
+            onClick={() =>
+              handleModeChange(
+                isSelectionModeActive ? "NONE" : currentMode || "DELETE"
+              )
+            }
+          >
+            {isSelectionModeActive ? "Salir modo selección" : "Modo selección"}
+          </button>
+          {currentMode === "DELETE" && (
+            <button style={styles.dangerButton} onClick={handleDeleteSelected}>
+              Eliminar seleccionados
+            </button>
+          )}
+          {(currentMode === "BLOCK" || currentMode === "UNBLOCK") && (
+            <button style={styles.blockButton} onClick={handleOpenBlockModal}>
+              {currentMode === "BLOCK"
+                ? "Bloquear seleccionados"
+                : "Desbloquear seleccionados"}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Modal de detalles de usuario y partes */}
+      <div style={styles.tableWrapper}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Sel</th>
+              <th style={styles.th}>ID</th>
+              <th style={styles.th}>Usuario</th>
+              <th style={styles.th}>Rol</th>
+              <th style={styles.th}>Nombres</th>
+              <th style={styles.th}>DNI</th>
+              <th style={styles.th}>Creado en</th>
+              <th style={styles.th}>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cargandoTabla ? (
+              <tr>
+                <td colSpan={8} style={styles.td}>
+                  Cargando usuarios...
+                </td>
+              </tr>
+            ) : listaUsuarios.length === 0 ? (
+              <tr>
+                <td colSpan={8} style={styles.td}>
+                  No hay usuarios para mostrar.
+                </td>
+              </tr>
+            ) : (
+              listaUsuarios.map((user, index) => renderUserRow(user, index))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Modal detalles usuario */}
       {showDetailsModal && (
         <div style={styles.modalOverlay}>
           <div style={styles.modalContent}>
@@ -1019,11 +833,9 @@ export default function Profile() {
                 style={styles.closeButton}
                 onClick={() => {
                   setShowDetailsModal(false);
-                  setSelectedParteDetail(null);
-                  setUsuarioPartes([]);
                   setUserDetails(null);
-                  setParteDetailTab("INFO");
-                  setCurrentTabView("DETAILS");
+                  setUsuarioPartes([]);
+                  setSelectedParteDetail(null);
                 }}
               >
                 ✕
@@ -1062,62 +874,93 @@ export default function Profile() {
                 {currentTabView === "DETAILS" && renderUserDetails()}
 
                 {currentTabView === "PARTES" && (
-                  <div>
-                    <h4>Partes del usuario</h4>
-                    {usuarioPartes.length === 0 ? (
-                      <p>Este usuario no tiene partes registrados.</p>
-                    ) : (
-                      <div style={styles.partesList}>
-                        {usuarioPartes.map((parte) => (
-                          <div
-                            key={parte.id}
-                            style={styles.parteItem}
-                            onClick={() => handleParteClick(parte.id)}
-                          >
-                            <strong>ID Parte:</strong> {parte.id} –{" "}
-                            {parte.sumilla || parte.asunto || "Sin sumilla"}{" "}
-                            ({parte.fecha || "-"})
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                  <>
+                    <div style={styles.partesList}>
+                      {usuarioPartes.length === 0 ? (
+                        <p>Este usuario no tiene partes registrados.</p>
+                      ) : (
+                        usuarioPartes.map((parte) => {
+                          const resumenIncidencia =
+                            parte.incidencia ||
+                            parte.incidencia_nombre ||
+                            parte.incidencia_detalle ||
+                            parte.tipo ||
+                            parte.descripcion ||
+                            "Sin tipo";
+
+                          const resumenUbicacion = [
+                            parte.sector && `Sector ${parte.sector}`,
+                            parte.zona && `Zona ${parte.zona}`,
+                            parte.turno && parte.turno,
+                          ]
+                            .filter(Boolean)
+                            .join(" / ");
+
+                          return (
+                            <div
+                              key={parte.id}
+                              style={{
+                                ...styles.parteItem,
+                                ...(hoveredParteId === parte.id
+                                  ? styles.parteItemHover
+                                  : {}),
+                              }}
+                              onMouseEnter={() => setHoveredParteId(parte.id)}
+                              onMouseLeave={() => setHoveredParteId(null)}
+                              onClick={() => handleParteClick(parte.id)}
+                            >
+                              Parte ID: {parte.id} – {resumenIncidencia} –{" "}
+                              {resumenUbicacion || "Sin ubicación"}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
 
                     {selectedParteDetail && (
                       <>
-                        <div style={styles.tabsContainer}>
-                          <button
-                            style={{
-                              ...styles.tabButton,
-                              ...(parteDetailTab === "INFO"
-                                ? styles.tabButtonActive
-                                : {}),
-                            }}
-                            onClick={() => setParteDetailTab("INFO")}
-                          >
-                            Información
-                          </button>
-                          <button
-                            style={{
-                              ...styles.tabButton,
-                              ...(parteDetailTab === "MULTIMEDIA"
-                                ? styles.tabButtonActive
-                                : {}),
-                            }}
-                            onClick={() => setParteDetailTab("MULTIMEDIA")}
-                          >
-                            Multimedia
-                          </button>
-                        </div>
+                        {parteDetailTab === "INFO" && renderParteDetail()}
+                        {parteDetailTab === "MULTIMEDIA" &&
+                          renderParteMultimedia()}
 
-                        {parteDetailTab === "INFO"
-                          ? renderParteDetail()
-                          : renderMultimedia()}
+                        {/* Botón para cambiar de vista Información <-> Multimedia */}
+                        <div style={styles.modalButtonsRow}>
+                          {parteDetailTab === "INFO" ? (
+                            <button
+                              style={styles.secondaryButton}
+                              onClick={() => setParteDetailTab("MULTIMEDIA")}
+                            >
+                              Ver contenido multimedia
+                            </button>
+                          ) : (
+                            <button
+                              style={styles.secondaryButton}
+                              onClick={() => setParteDetailTab("INFO")}
+                            >
+                              Volver a información
+                            </button>
+                          )}
+                        </div>
                       </>
                     )}
-                  </div>
+                  </>
                 )}
               </>
             )}
+
+            <div style={styles.modalButtonsRow}>
+              <button
+                style={styles.secondaryButton}
+                onClick={() => {
+                  setShowDetailsModal(false);
+                  setUserDetails(null);
+                  setUsuarioPartes([]);
+                  setSelectedParteDetail(null);
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1125,9 +968,9 @@ export default function Profile() {
       {/* Modal de bloqueo */}
       {showBlockModal && (
         <div style={styles.modalOverlay}>
-          <div style={styles.blockModalContent}>
+          <div style={styles.modalContent}>
             <div style={styles.modalHeader}>
-              <h3 style={styles.modalTitle}>Gestionar bloqueo de usuarios</h3>
+              <h3 style={styles.modalTitle}>Bloquear / Desbloquear usuarios</h3>
               <button
                 style={styles.closeButton}
                 onClick={() => setShowBlockModal(false)}
@@ -1136,29 +979,29 @@ export default function Profile() {
               </button>
             </div>
             <p>
-              Estás a punto de{" "}
-              <strong>
-                {currentMode === "BLOCK" ? "BLOQUEAR" : "DESBLOQUEAR"}
-              </strong>{" "}
-              {selectedUserIds.length} usuario(s).
+              Usuarios seleccionados: <strong>{selectedUserIds.length}</strong>
             </p>
-            {currentMode === "BLOCK" && (
-              <>
-                <label>
-                  Motivo del bloqueo (Ej: Vacaciones, Suspensión, etc.):
-                </label>
+
+            <div style={{ marginTop: "1rem", marginBottom: "1rem" }}>
+              <label>
+                Motivo (solo se requiere para bloqueo):
                 <textarea
-                  style={styles.blockTextarea}
                   value={blockReason}
                   onChange={(e) => setBlockReason(e.target.value)}
+                  style={{
+                    width: "100%",
+                    minHeight: "60px",
+                    marginTop: "0.5rem",
+                    padding: "0.5rem",
+                  }}
                 />
-              </>
-            )}
-            <div style={styles.blockModalButtons}>
+              </label>
+            </div>
+
+            <div style={styles.modalButtonsRow}>
               <button
                 style={styles.secondaryButton}
                 onClick={() => setShowBlockModal(false)}
-                disabled={blockActionLoading}
               >
                 Cancelar
               </button>
@@ -1188,4 +1031,6 @@ export default function Profile() {
       )}
     </div>
   );
-}
+};
+
+export default Profile;
