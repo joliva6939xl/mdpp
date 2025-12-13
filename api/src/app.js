@@ -7,7 +7,7 @@ const usuariosRoutes = require("./routes/usuarios.routes");
 // --- IMPORTACIÓN DE RUTAS ---
 const authRoutes = require("./routes/auth.routes");           // 1. Auth (Login App)
 const authAdminRoutes = require("./routes/authAdmin.routes"); // 2. Admin (Dashboard Web)
-
+const callcenterRoutes = require("./routes/callcenter.routes");
 // ⚠️ AQUÍ ESTABA EL ERROR: Faltaba importar las rutas de Partes
 // Asumo que el archivo se llama 'partes.routes.js' basado en la estructura de tu proyecto
 const partesRoutes = require("./routes/partes.routes");       // 3. Partes (Formularios App)
@@ -44,6 +44,8 @@ app.use("/api/partes", partesRoutes);
 
 // 4. Rutas de Usuarios (movido aquí para consistencia)
 app.use("/api/usuarios", usuariosRoutes);
+//CONTEO PARA CALL CENTER
+app.use("/api/callcenter", callcenterRoutes);
 
 // Manejo de errores global (DEBE IR AL FINAL)
 app.use((err, req, res, next) => {
@@ -52,5 +54,6 @@ app.use((err, req, res, next) => {
         ok: false,
         message: err.message || "Error interno del servidor"
     });
+    
 });
 module.exports = app;

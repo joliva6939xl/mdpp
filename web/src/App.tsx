@@ -5,7 +5,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Login from './pages/Login';
 import Profile from './pages/Profile'; 
 import Estadistica from './pages/Estadistica'; // <--- NUEVA IMPORTACIÓN
-
+import Count from "./pages/Count";
 function App() {
   return (
     <BrowserRouter>
@@ -22,6 +22,7 @@ function App() {
         {/* Manejo de rutas no encontradas */}
         <Route path="*" element={<p style={{ textAlign: 'center', marginTop: '50px' }}>404 | Página no encontrada</p>} />
       </Routes>
+      <Route path="/count" element={<Count />} />
     </BrowserRouter>
   );
 }

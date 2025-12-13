@@ -1,7 +1,4 @@
 const pool = require('../config/db');
-const jwt = require('jsonwebtoken');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'secreto_super_seguro';
 
 // Helper para generar usuario (Mantenido de tu original)
 const generarNombreUsuario = (nombreCompleto) => {
@@ -42,8 +39,6 @@ const registrarUsuario = async (req, res) => {
 
         const passwordClean = String(passwordFinal).trim();
 
-        // ✅ Si se envía una foto (multer .single("foto")), usamos el filename generado.
-        //    Si no, respetamos `foto_ruta` si viniera desde otra integración.
         const fotoRuta = req.file
             ? req.file.filename
             : req.body.foto_ruta || null;
@@ -57,7 +52,7 @@ const registrarUsuario = async (req, res) => {
         res.status(201).json({
             ok: true,
             message: 'Usuario registrado correctamente',
-            data: result.rows[0] // Devuelve el usuario completo
+            data: result.rows[0]
         });
 
     } catch (error) {
@@ -100,26 +95,20 @@ const loginUsuario = async (req, res) => {
         }
 
         const user = result.rows[0];
-        const dbPass = user.contrasena;
+        const dbPass = String(user.contrasena ?? "").trim();
         const inputPass = String(passInput).trim();
 
+        // ✅ SOLO COINCIDENCIA EXACTA (NO TOKEN)
         if (dbPass !== inputPass) {
             return res
                 .status(401)
                 .json({ ok: false, message: 'Contraseña incorrecta.' });
         }
 
-        const token = jwt.sign(
-            { id: user.id, rol: user.rol },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-        );
-
-        // Enviamos el objeto usuario completo para que el perfil funcione
+        // ✅ Sin token: devolvemos solo info útil
         res.json({
             ok: true,
             message: 'Bienvenido',
-            token,
             usuario: {
                 id: user.id,
                 nombre: user.nombre,
@@ -138,7 +127,6 @@ const loginUsuario = async (req, res) => {
     }
 };
 
-// Función para actualizar foto (Sinergia)
 const actualizarFotoPerfil = async (req, res) => {
     try {
         const { id } = req.params;
