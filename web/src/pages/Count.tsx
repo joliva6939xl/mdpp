@@ -1,196 +1,115 @@
-import { useEffect, useMemo, useState } from "react";
-
-const API_BASE = "http://localhost:4000/api";
-
-type Zona = "NORTE" | "CENTRO" | "SUR";
-
-type ConteoFila = {
-  usuario: string;
-  zona: Zona;
-  cantidad: number;
-};
-
-type ConteoResponse = {
-  ok: boolean;
-  data: ConteoFila[];
-  message?: string;
-};
-
-type Columna = {
-  zona: Zona;
-  items: { usuario: string; cantidad: number }[];
-  total: number;
-};
+// mdpp/web/src/pages/Count.tsx
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  obtenerConteoIncidencias,
+  type ConteoIncidenciasResponse,
+} from "../services/callcenterService";
 
 export default function Count() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState<ConteoFila[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<ConteoIncidenciasResponse | null>(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    let alive = true;
+    let cancelado = false;
 
-    const run = async () => {
+    (async () => {
       setLoading(true);
-      setError(null);
-
+      setError("");
       try {
-        const resp = await fetch(`${API_BASE}/callcenter/conteo`, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        });
+        const json = await obtenerConteoIncidencias();
+        if (cancelado) return;
 
-        const json = (await resp.json()) as ConteoResponse;
-
-        if (!alive) {
-          return;
-        }
-
-        if (!resp.ok || !json.ok) {
+        if (!json.ok) {
           setError(json.message || "No se pudo obtener el conteo.");
-          setRows([]);
-        } else {
-          setRows(Array.isArray(json.data) ? json.data : []);
         }
+        setData(json);
       } catch {
-        if (!alive) {
-          return;
-        }
-        setError("Error de conexión con el servidor.");
-        setRows([]);
+        if (!cancelado) setError("Error de conexión.");
       } finally {
-        if (alive) {
-          setLoading(false);
-        }
+        if (!cancelado) setLoading(false);
       }
-    };
-
-    run();
+    })();
 
     return () => {
-      alive = false;
+      cancelado = true;
     };
   }, []);
 
-  const columnas = useMemo<Columna[]>(() => {
-    const zonas: Zona[] = ["NORTE", "CENTRO", "SUR"];
-
-    const byZona: Record<Zona, { usuario: string; cantidad: number }[]> = {
-      NORTE: [],
-      CENTRO: [],
-      SUR: [],
-    };
-
-    for (const r of rows) {
-      if (r.zona === "NORTE" || r.zona === "CENTRO" || r.zona === "SUR") {
-        byZona[r.zona].push({
-          usuario: r.usuario,
-          cantidad: Number(r.cantidad) || 0,
-        });
-      }
-    }
-
-    zonas.forEach((z) => {
-      byZona[z].sort((a, b) => {
-        if (b.cantidad !== a.cantidad) return b.cantidad - a.cantidad;
-        return a.usuario.localeCompare(b.usuario);
-      });
-    });
-
-    return zonas.map((z) => ({
-      zona: z,
-      items: byZona[z],
-      total: byZona[z].reduce((acc, it) => acc + (Number(it.cantidad) || 0), 0),
-    }));
-  }, [rows]);
-
-  const totalGeneral = useMemo(() => {
-    return columnas.reduce((acc, c) => acc + c.total, 0);
-  }, [columnas]);
-
   return (
-    <div style={{ padding: 22 }}>
-      <h2 style={{ textAlign: "center", marginTop: 0 }}>
-        CONTEO DE PARTES (CALL CENTER)
-      </h2>
+    <div style={{ padding: 18, maxWidth: 1100, margin: "0 auto" }}>
+      <h2 style={{ marginBottom: 10 }}>Conteo (CALL CENTER)</h2>
 
-      {loading && <p style={{ textAlign: "center" }}>Cargando conteo...</p>}
+      <button
+        onClick={() => navigate(-1)}
+        style={{
+          padding: "8px 12px",
+          borderRadius: 10,
+          border: "1px solid #d1d5db",
+          background: "#f9fafb",
+          cursor: "pointer",
+          marginBottom: 16,
+        }}
+      >
+        Volver
+      </button>
 
-      {!loading && error && (
-        <p style={{ textAlign: "center", color: "crimson" }}>{error}</p>
-      )}
-
-      {!loading && !error && (
+      {loading ? (
+        <p>Cargando...</p>
+      ) : error ? (
+        <p style={{ color: "#b91c1c", fontWeight: 700 }}>{error}</p>
+      ) : (
         <>
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(240px, 1fr))",
-              gap: 18,
-              alignItems: "start",
-              marginTop: 18,
+              background: "#fff",
+              border: "1px solid #e5e7eb",
+              borderRadius: 14,
+              boxShadow: "0 10px 25px rgba(15,23,42,0.08)",
+              padding: 16,
             }}
           >
-            {columnas.map((col) => (
-              <div key={col.zona}>
-                <div
-                  style={{
-                    border: "2px solid #d00",
-                    borderRadius: 10,
-                    minHeight: 360,
-                    padding: 12,
-                    background: "#fff",
-                  }}
-                >
-                  <div style={{ fontWeight: 700, marginBottom: 10 }}>
-                    {col.zona}
-                  </div>
+            <h3 style={{ marginTop: 0 }}>Total general</h3>
+            <p style={{ fontSize: 18, fontWeight: 800 }}>
+              {data?.total_general ?? 0}
+            </p>
 
-                  {col.items.length === 0 ? (
-                    <div style={{ color: "#666" }}>Sin registros</div>
-                  ) : (
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {col.items.map((it) => (
-                        <div
-                          key={`${col.zona}-${it.usuario}`}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            borderBottom: "1px dashed rgba(0,0,0,.12)",
-                            paddingBottom: 6,
-                          }}
-                        >
-                          <span style={{ fontWeight: 600 }}>{it.usuario}</span>
-                          <span>{it.cantidad}</span>
-                        </div>
-                      ))}
+            <h3>Incidencias (sumadas en las 3 zonas)</h3>
+            {(data?.incidencias_total || []).length === 0 ? (
+              <p>Sin registros.</p>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 8 }}>
+                {(data?.incidencias_total || []).map((it, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: "contents",
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: "8px 0",
+                        borderBottom: "1px dashed #e5e7eb",
+                      }}
+                    >
+                      {it.incidencia}
                     </div>
-                  )}
-                </div>
-
-                <div
-                  style={{
-                    textAlign: "center",
-                    marginTop: 10,
-                    color: "#d00",
-                    fontWeight: 700,
-                  }}
-                >
-                  TOTAL {col.zona}: {col.total}
-                </div>
+                    <div
+                      style={{
+                        padding: "8px 0",
+                        borderBottom: "1px dashed #e5e7eb",
+                        fontWeight: 800,
+                        textAlign: "right",
+                      }}
+                    >
+                      {it.total}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-
-          <div
-            style={{
-              marginTop: 30,
-              textAlign: "center",
-              color: "#d00",
-              fontWeight: 800,
-            }}
-          >
-            TOTAL PARTES EN LAS 3 ZONAS: {totalGeneral}
+            )}
           </div>
         </>
       )}

@@ -4,6 +4,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import ControlPanel from "../components/ControlPanel";
 import { UserDetailsModal } from "../components/UserDetailsModal";
 import { InternalCenterLoginModal } from "../components/InternalCenterLoginModal";
+// IMPORTANTE: Asegúrate de que la ruta sea correcta para tu proyecto
+import CallCenterDashboard from "../components/CallCenterDashboard";
 
 import {
   obtenerUsuariosSistema,
@@ -48,6 +50,9 @@ const Profile: React.FC = () => {
 
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [usuarioModal, setUsuarioModal] = useState<UsuarioApp | null>(null);
+
+  // Estado para controlar la apertura manual del modal interno
+  const [showInternalCenterModal, setShowInternalCenterModal] = useState(false);
 
   const sessionKeyOk = "ccenter_internal_ok";
   const sessionKeyNombre = "ccenter_nombre";
@@ -171,6 +176,8 @@ const Profile: React.FC = () => {
 
     setInternalInfo(data);
     setInternalOK(true);
+    // Cerramos el modal en caso de que se haya abierto manualmente
+    setShowInternalCenterModal(false);
   };
 
   const renderBottomRightLabel = () => {
@@ -275,108 +282,24 @@ const Profile: React.FC = () => {
       {/* CALL CENTER */}
       {esCallCenter && (
         <>
+          {/* El modal se abre si no hay login OK O si se pide explícitamente */}
           <InternalCenterLoginModal
-            open={!internalOK}
+            open={!internalOK || showInternalCenterModal}
             onConfirm={handleConfirmInternal}
             onLogout={handleLogout}
           />
 
           {internalOK && (
-            <div
-              style={{
-                marginTop: 18,
-                display: "grid",
-                placeItems: "center",
-              }}
-            >
-              {/* Cuadro central sin puntas */}
-              <div
-                style={{
-                  width: "min(560px, 92vw)",
-                  background: "#fff",
-                  borderRadius: 18,
-                  padding: 18,
-                  boxShadow: "0 10px 24px rgba(0,0,0,.12)",
-                  textAlign: "center",
-                }}
-              >
-                <h3 style={{ marginTop: 0, marginBottom: 10 }}>
-                  Panel CALL CENTER
-                </h3>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(2, minmax(180px, 1fr))",
-                    gap: 12,
-                    justifyItems: "center",
-                    marginTop: 12,
-                  }}
-                >
-                  {/* BOTÓN 1: CONTEO */}
-                  <button
-                    onClick={() => navigate("/count")}
-                    style={{
-                      width: "100%",
-                      padding: "12px 14px",
-                      borderRadius: 14,
-                      border: "none",
-                      background: "#2d6cdf",
-                      color: "#fff",
-                      cursor: "pointer",
-                      fontWeight: 700,
-                    }}
-                  >
-                    CONTEO
-                  </button>
-
-                  {/* Placeholder (no lo borro: lo dejamos para el próximo botón) */}
-                  <button
-                    disabled
-                    style={{
-                      width: "100%",
-                      padding: "12px 14px",
-                      borderRadius: 14,
-                      border: "1px solid rgba(0,0,0,.12)",
-                      background: "#f3f3f3",
-                      color: "#777",
-                      cursor: "not-allowed",
-                      fontWeight: 700,
-                    }}
-                    title="Próximamente"
-                  >
-                    PRÓXIMAMENTE
-                  </button>
-                </div>
-
-                <div style={{ marginTop: 14, display: "flex", justifyContent: "center", gap: 10 }}>
-                  <button
-                    onClick={handleBack}
-                    style={{
-                      padding: "10px 12px",
-                      borderRadius: 12,
-                      border: "1px solid #ddd",
-                      background: "#f7f7f7",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Volver
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    style={{
-                      padding: "10px 12px",
-                      borderRadius: 12,
-                      border: "none",
-                      background: "#111827",
-                      color: "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Cerrar sesión
-                  </button>
-                </div>
-              </div>
+            <div style={{ marginTop: 18 }}>
+              {/* Aquí renderizamos tu nuevo componente Dashboard */}
+              <CallCenterDashboard
+                userName={userName}
+                onBack={handleBack}
+                onLogout={handleLogout}
+                internoNombre={internalInfo?.nombre || ""}
+                internoRoperoTurno={internalInfo?.roperoCentralTurno || ""}
+                onOpenInternalLogin={() => setShowInternalCenterModal(true)}
+              />
             </div>
           )}
         </>

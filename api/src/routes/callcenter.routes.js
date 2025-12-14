@@ -2,11 +2,9 @@
 const express = require("express");
 const router = express.Router();
 
-const {
-  obtenerConteoPartesPorZona,
-} = require("../controllers/callcenter.controller");
+const { obtenerConteo } = require("../controllers/callcenter.controller");
 
-// GET /api/callcenter/conteo
-router.get("/conteo", obtenerConteoPartesPorZona);
+// ✅ Endpoint que tu frontend está llamando:
+router.get("/conteo", obtenerConteo);
 
 module.exports = router;
