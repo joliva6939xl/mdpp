@@ -1,9 +1,11 @@
-// web/src/components/CallCenterDashboard.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { ccdStyles as S } from "./CallCenterDashboard.styles";
 import { UserDetailsModal } from "./UserDetailsModal";
 import { obtenerUsuariosSistema } from "../services/adminService";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TIPOS Y DEFINICIONES
+// ─────────────────────────────────────────────────────────────────────────────
 type ZonaKey = "NORTE" | "CENTRO" | "SUR";
 type ZonaUI = "TODAS" | ZonaKey;
 
@@ -58,31 +60,10 @@ const conteoFallback: ConteoData = {
 
 const normalizeIncidencia = (v: string) => v.trim() || "SIN INCIDENCIA";
 
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
-function safeNumber(n: unknown) {
-  const x = Number(n);
-  return Number.isFinite(x) ? x : 0;
-}
-
-function Bar({ value, max, height = 10 }: { value: number; max: number; height?: number }) {
-  const v = safeNumber(value);
-  const m = Math.max(1, safeNumber(max));
-  const pct = clamp((v / m) * 100, 0, 100);
-
-  return (
-    <div style={S.barOuter(height)} aria-label={`Barra: ${Math.round(pct)}%`} title={`${Math.round(pct)}%`}>
-      <div style={S.barInner(pct)} />
-    </div>
-  );
-}
-
 function toUsuarioModal(u: UsuarioSistema, tipo: "APP" | "ADMIN"): UsuarioModal {
   const nombre = (u.nombres || u.nombre || u.usuario || u.nombre_usuario || `Usuario ${u.id}`).toString();
   const usuario = (u.nombre_usuario || u.usuario || "").toString();
   const cargo = (u.rol || u.cargo || (tipo === "ADMIN" ? "ADMIN" : "APP")).toString();
-
   return {
     id: u.id,
     nombre,
@@ -104,14 +85,14 @@ export default function CallCenterDashboard({
 }: Props) {
   const [view, setView] = useState<"RESUMEN" | "METRICAS" | "USUARIOS">("RESUMEN");
 
-  // ───────────── Conteo ─────────────
+  // Estados Conteo
   const [loadingConteo, setLoadingConteo] = useState(false);
   const [conteo, setConteo] = useState<ConteoData | null>(null);
   const [errorConteo, setErrorConteo] = useState<string>("");
-
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [zonaMetricas, setZonaMetricas] = useState<ZonaUI>("TODAS");
 
-  // ───────────── Usuarios ─────────────
+  // Estados Usuarios
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [errorUsers, setErrorUsers] = useState("");
   const [usersApp, setUsersApp] = useState<UsuarioSistema[]>([]);
@@ -124,94 +105,71 @@ export default function CallCenterDashboard({
 
   const conteoMostrado = conteo ?? conteoFallback;
 
-  const fetchConteo = async () => {
-    setLoadingConteo(true);
-    setErrorConteo("");
-
+  const fetchConteo = useCallback(async (isBackground = false) => {
+    if (!isBackground) setLoadingConteo(true);
+    if (!isBackground) setErrorConteo("");
     try {
       const resp = await fetch(`${API_BASE}/api/callcenter/conteo`, {
         method: "GET",
         headers: { "Content-Type": "application/json" },
       });
-
       const text = await resp.text();
       let json: unknown;
       try {
         json = JSON.parse(text) as unknown;
       } catch {
-        throw new Error("El servidor no devolvió JSON válido (revisa /api/callcenter/conteo).");
+        throw new Error("El servidor no devolvió JSON válido.");
       }
+      if (!resp.ok) throw new Error("Error consultando conteo");
 
-      if (!resp.ok) {
-        const msg =
-          typeof json === "object" && json !== null && "message" in json
-            ? String((json as { message?: unknown }).message || "Error")
-            : "Error consultando conteo";
-        throw new Error(msg);
-      }
-
-      const parsed = json as {
-        total_general?: number;
-        totalGeneral?: number;
-        zonas?: Partial<Record<string, { total?: number; incidencias?: Array<{ incidencia?: string; total?: number }> }>>;
-        data?: {
-          total_general?: number;
-          totalGeneral?: number;
-          zonas?: Partial<Record<string, { total?: number; incidencias?: Array<{ incidencia?: string; total?: number }> }>>;
-        };
-      };
-
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const parsed = json as any;
       const zonasRaw = parsed.data?.zonas ?? parsed.zonas ?? {};
-      const totalGeneralRaw = parsed.data?.total_general ?? parsed.data?.totalGeneral ?? parsed.total_general ?? parsed.totalGeneral ?? 0;
 
       const buildZona = (z: ZonaKey): ZonaCount => {
         const zr = zonasRaw[z] ?? zonasRaw[z.toLowerCase()] ?? zonasRaw[z.toUpperCase()];
         const total = Number(zr?.total ?? 0);
-
-        const incidencias = (zr?.incidencias ?? []).map((i) => ({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const incidencias = (zr?.incidencias ?? []).map((i: any) => ({
           incidencia: normalizeIncidencia(String(i.incidencia ?? "SIN INCIDENCIA")),
           total: Number(i.total ?? 0),
         }));
-        incidencias.sort((a, b) => b.total - a.total);
-
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        incidencias.sort((a: any, b: any) => b.total - a.total);
         return { zona: z, total, incidencias };
       };
 
+      const zonaNorte = buildZona("NORTE");
+      const zonaCentro = buildZona("CENTRO");
+      const zonaSur = buildZona("SUR");
+      const totalCalculado = zonaNorte.total + zonaCentro.total + zonaSur.total;
+
       setConteo({
-        zonas: {
-          NORTE: buildZona("NORTE"),
-          CENTRO: buildZona("CENTRO"),
-          SUR: buildZona("SUR"),
-        },
-        totalGeneral: Number(totalGeneralRaw ?? 0),
+        zonas: { NORTE: zonaNorte, CENTRO: zonaCentro, SUR: zonaSur },
+        totalGeneral: totalCalculado,
       });
+      setLastUpdated(new Date());
+      setErrorConteo("");
     } catch (err) {
-      setErrorConteo(err instanceof Error ? err.message : "Error desconocido");
+      console.error("Error fetching conteo:", err);
+      if (!isBackground) setErrorConteo(err instanceof Error ? err.message : "Error desconocido");
     } finally {
-      setLoadingConteo(false);
+      if (!isBackground) setLoadingConteo(false);
     }
-  };
+  }, []);
 
   const fetchUsers = async () => {
     setLoadingUsers(true);
     setErrorUsers("");
-
     try {
-      const [appRes, adminRes] = await Promise.all([
-        obtenerUsuariosSistema("APP"),
-        obtenerUsuariosSistema("ADMIN"),
-      ]);
-
-      if (appRes.resp.ok && appRes.json.ok) {
-        setUsersApp((appRes.json.usuarios ?? []) as unknown as UsuarioSistema[]);
-      } else {
-        setUsersApp([]);
+      const [appRes, adminRes] = await Promise.all([obtenerUsuariosSistema("APP"), obtenerUsuariosSistema("ADMIN")]);
+      
+      // Casteo seguro usando unknown primero
+      if (appRes.resp.ok) {
+        setUsersApp((appRes.json.usuarios as unknown) as UsuarioSistema[]);
       }
-
-      if (adminRes.resp.ok && adminRes.json.ok) {
-        setUsersAdmin((adminRes.json.usuarios ?? []) as unknown as UsuarioSistema[]);
-      } else {
-        setUsersAdmin([]);
+      if (adminRes.resp.ok) {
+        setUsersAdmin((adminRes.json.usuarios as unknown) as UsuarioSistema[]);
       }
     } catch (err) {
       setErrorUsers(err instanceof Error ? err.message : "Error cargando usuarios");
@@ -220,64 +178,171 @@ export default function CallCenterDashboard({
     }
   };
 
-  // ✅ carga automática del conteo
   useEffect(() => {
-    void fetchConteo();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    fetchConteo(false);
+    const intervalId = setInterval(() => fetchConteo(true), 5000);
+    return () => clearInterval(intervalId);
+  }, [fetchConteo]);
 
-  // ✅ cuando entras a VER USUARIOS, carga lista (una vez / o refrescas con botón)
   useEffect(() => {
-    if (view !== "USUARIOS") return;
-    if (usersApp.length === 0 && usersAdmin.length === 0) void fetchUsers();
+    // Si cambio a vista USUARIOS y está vacía, cargar.
+    if (view === "USUARIOS" && usersApp.length === 0 && usersAdmin.length === 0) {
+      void fetchUsers();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
-  const topIncidenciaPorZona = useMemo(() => {
-    const top = (z: ZonaKey) => conteoMostrado.zonas[z].incidencias[0] ?? { incidencia: "-", total: 0 };
-    return { NORTE: top("NORTE"), CENTRO: top("CENTRO"), SUR: top("SUR") };
-  }, [conteoMostrado]);
-
+  // Lógica Métricas
   const zonaPrioritaria = useMemo(() => {
-    const arr = (["NORTE", "CENTRO", "SUR"] as ZonaKey[]).map((z) => ({ zona: z, total: conteoMostrado.zonas[z].total }));
+    const arr = (["NORTE", "CENTRO", "SUR"] as ZonaKey[]).map((z) => ({
+      zona: z,
+      total: conteoMostrado.zonas[z].total,
+    }));
     arr.sort((a, b) => b.total - a.total);
     return arr[0]?.zona ?? "NORTE";
   }, [conteoMostrado]);
 
-  const rankingGeneralTop5 = useMemo(() => {
+  const rankingTop5 = useMemo(() => {
+    let lista: IncidenciaCount[] = [];
+    if (zonaMetricas === "TODAS") {
+      lista = [
+        ...conteoMostrado.zonas.NORTE.incidencias,
+        ...conteoMostrado.zonas.CENTRO.incidencias,
+        ...conteoMostrado.zonas.SUR.incidencias,
+      ];
+    } else {
+      lista = conteoMostrado.zonas[zonaMetricas as ZonaKey].incidencias;
+    }
     const map = new Map<string, number>();
-    const add = (list: IncidenciaCount[]) => {
-      list.forEach((it) => {
-        const key = normalizeIncidencia(it.incidencia);
-        map.set(key, (map.get(key) ?? 0) + Number(it.total ?? 0));
-      });
-    };
-    add(conteoMostrado.zonas.NORTE.incidencias);
-    add(conteoMostrado.zonas.CENTRO.incidencias);
-    add(conteoMostrado.zonas.SUR.incidencias);
-
+    lista.forEach((it) => {
+      const key = normalizeIncidencia(it.incidencia);
+      map.set(key, (map.get(key) ?? 0) + it.total);
+    });
     const arr = Array.from(map.entries()).map(([incidencia, total]) => ({ incidencia, total }));
     arr.sort((a, b) => b.total - a.total);
     return arr.slice(0, 5);
-  }, [conteoMostrado]);
-
-  const rankingZonaSeleccionadaTop5 = useMemo(() => {
-    if (zonaMetricas === "TODAS") return rankingGeneralTop5;
-    return conteoMostrado.zonas[zonaMetricas].incidencias.slice(0, 5);
-  }, [conteoMostrado, zonaMetricas, rankingGeneralTop5]);
-
-  const totalMetricas = useMemo(() => {
-    if (zonaMetricas === "TODAS") return conteoMostrado.totalGeneral;
-    return conteoMostrado.zonas[zonaMetricas].total;
   }, [conteoMostrado, zonaMetricas]);
 
-  const maxZonaTotal = useMemo(() => {
-    return Math.max(1, conteoMostrado.zonas.NORTE.total, conteoMostrado.zonas.CENTRO.total, conteoMostrado.zonas.SUR.total);
-  }, [conteoMostrado]);
+  const maxZonaTotal = Math.max(
+    1,
+    conteoMostrado.zonas.NORTE.total,
+    conteoMostrado.zonas.CENTRO.total,
+    conteoMostrado.zonas.SUR.total
+  );
 
-  const maxTop5 = useMemo(() => Math.max(1, rankingZonaSeleccionadaTop5[0]?.total ?? 0), [rankingZonaSeleccionadaTop5]);
+  // RENDER: Métricas Ejecutivas
+  const renderMetricasExecutive = () => {
+    return (
+      <div style={{ maxWidth: "1000px", margin: "0 auto", paddingBottom: "40px" }}>
+        {/* KPI CARDS */}
+        <div style={S.execGrid}>
+          <div style={{ ...S.kpiCard, borderLeftColor: "#3b82f6" }}>
+            <div style={S.kpiLabel}>Total Incidentes</div>
+            <div style={S.kpiValue}>
+               {loadingConteo ? "..." : conteoMostrado.totalGeneral}
+            </div>
+            <div style={S.kpiSub}>Registrados hoy</div>
+          </div>
+          <div style={{ ...S.kpiCard, borderLeftColor: "#ef4444" }}>
+            <div style={S.kpiLabel}>Zona con más carga</div>
+            <div style={{ ...S.kpiValue, color: "#ef4444" }}>{zonaPrioritaria}</div>
+            <div style={S.kpiSub}>Atención Prioritaria</div>
+          </div>
+          <div style={{ ...S.kpiCard, borderLeftColor: "#10b981" }}>
+            <div style={S.kpiLabel}>Ultima Sincronización</div>
+            <div style={{ ...S.kpiValue, color: "#10b981", fontSize: "24px" }}>
+               {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </div>
+            <div style={S.kpiSub}>Sistema en Línea</div>
+          </div>
+        </div>
 
-  const renderZona = (z: ZonaKey) => {
+        {/* CHART: Barras */}
+        <div style={S.chartContainer}>
+          <div style={S.chartHeader}>
+            <div style={S.chartTitle}>Comparativa por Zona</div>
+            <button type="button" style={{...S.smallBtn, opacity: loadingConteo ? 0.6 : 1}} onClick={() => void fetchConteo(false)}>
+              {loadingConteo ? "Actualizando..." : "Actualizar"}
+            </button>
+          </div>
+          <div style={S.barChartFrame}>
+            <div style={S.barColumn}>
+              <div style={S.barValueFloat}>{conteoMostrado.zonas.NORTE.total}</div>
+              <div style={S.barFill((conteoMostrado.zonas.NORTE.total / maxZonaTotal) * 100 || 2, "#3b82f6")} />
+              <div style={S.barLabel}>NORTE</div>
+            </div>
+            <div style={S.barColumn}>
+              <div style={S.barValueFloat}>{conteoMostrado.zonas.CENTRO.total}</div>
+              <div style={S.barFill((conteoMostrado.zonas.CENTRO.total / maxZonaTotal) * 100 || 2, "#8b5cf6")} />
+              <div style={S.barLabel}>CENTRO</div>
+            </div>
+            <div style={S.barColumn}>
+              <div style={S.barValueFloat}>{conteoMostrado.zonas.SUR.total}</div>
+              <div style={S.barFill((conteoMostrado.zonas.SUR.total / maxZonaTotal) * 100 || 2, "#f59e0b")} />
+              <div style={S.barLabel}>SUR</div>
+            </div>
+          </div>
+        </div>
+
+        {/* TABLE: Ranking */}
+        <div style={S.chartContainer}>
+          <div style={S.chartHeader}>
+            <div style={S.chartTitle}>Top 5 Incidencias</div>
+            <select
+              value={zonaMetricas}
+              onChange={(e) => setZonaMetricas(e.target.value as ZonaUI)}
+              style={S.select}
+            >
+              <option value="TODAS">Todas las Zonas</option>
+              <option value="NORTE">Solo Norte</option>
+              <option value="CENTRO">Solo Centro</option>
+              <option value="SUR">Solo Sur</option>
+            </select>
+          </div>
+          <table style={S.execTable}>
+            <thead>
+              <tr>
+                <th style={S.execTh}>#</th>
+                <th style={S.execTh}>Incidencia</th>
+                <th style={S.execTh}>Cant.</th>
+                <th style={S.execTh}>% Impacto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rankingTop5.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ padding: "20px", textAlign: "center", color: "#94a3b8" }}>
+                    Sin datos disponibles.
+                  </td>
+                </tr>
+              ) : (
+                rankingTop5.map((item, idx) => {
+                  const maxVal = rankingTop5[0]?.total || 1;
+                  const pct = (item.total / maxVal) * 100;
+                  return (
+                    <tr key={idx}>
+                      <td style={S.execTd}>{idx + 1}</td>
+                      <td style={S.execTd}>{item.incidencia}</td>
+                      <td style={S.execTd}>
+                         <span style={S.badge(idx)}>{item.total}</span>
+                      </td>
+                      <td style={S.execTd}>
+                        <div style={S.progressBarBg}>
+                          <div style={S.progressBarFill(pct, idx === 0)} />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderZonaSimple = (z: ZonaKey) => {
     const zona = conteoMostrado.zonas[z];
     return (
       <div style={S.zoneCard}>
@@ -285,15 +350,12 @@ export default function CallCenterDashboard({
           <span>{z}</span>
           <span>Total: {zona.total}</span>
         </div>
-
         {zona.incidencias.length === 0 ? (
-          <div style={{ color: "#64748b", fontSize: "13px" }}>
-            {loadingConteo ? "Cargando incidencias..." : "Aún no hay incidencias para mostrar."}
-          </div>
+          <div style={{ color: "#64748b", fontSize: "13px" }}>Sin incidencias.</div>
         ) : (
           <div>
             {zona.incidencias.slice(0, 10).map((it, idx) => (
-              <div key={`${it.incidencia}-${idx}`} style={S.listItem}>
+              <div key={idx} style={S.listItem}>
                 <span style={{ fontWeight: 700 }}>{it.incidencia}</span>
                 <span style={{ fontWeight: 900 }}>{it.total}</span>
               </div>
@@ -304,118 +366,19 @@ export default function CallCenterDashboard({
     );
   };
 
-  const renderMetricas = () => {
-    return (
-      <div style={S.conteoWrap}>
-        <div style={S.statGrid}>
-          <div style={S.statCard}>
-            <div style={S.statTitle}>Zona prioritaria</div>
-            <div style={S.statValue}>{zonaPrioritaria}</div>
-            <div style={{ marginTop: 8, fontSize: 12, color: "#64748b", fontWeight: 700 }}>Mayor cantidad total de hechos</div>
-          </div>
-
-          <div style={S.statCard}>
-            <div style={S.statTitle}>Total NORTE</div>
-            <div style={S.statValue}>{loadingConteo ? "..." : conteoMostrado.zonas.NORTE.total}</div>
-            <div style={{ marginTop: 10 }}>
-              <Bar value={conteoMostrado.zonas.NORTE.total} max={maxZonaTotal} />
-              <div style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>Comparación vs zona mayor</div>
-            </div>
-            <div style={{ marginTop: 10, fontSize: 12, color: "#64748b" }}>
-              Top: <strong>{topIncidenciaPorZona.NORTE.incidencia}</strong> ({topIncidenciaPorZona.NORTE.total})
-            </div>
-          </div>
-
-          <div style={S.statCard}>
-            <div style={S.statTitle}>Total CENTRO</div>
-            <div style={S.statValue}>{loadingConteo ? "..." : conteoMostrado.zonas.CENTRO.total}</div>
-            <div style={{ marginTop: 10 }}>
-              <Bar value={conteoMostrado.zonas.CENTRO.total} max={maxZonaTotal} />
-              <div style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>Comparación vs zona mayor</div>
-            </div>
-            <div style={{ marginTop: 10, fontSize: 12, color: "#64748b" }}>
-              Top: <strong>{topIncidenciaPorZona.CENTRO.incidencia}</strong> ({topIncidenciaPorZona.CENTRO.total})
-            </div>
-          </div>
-
-          <div style={S.statCard}>
-            <div style={S.statTitle}>Total SUR</div>
-            <div style={S.statValue}>{loadingConteo ? "..." : conteoMostrado.zonas.SUR.total}</div>
-            <div style={{ marginTop: 10 }}>
-              <Bar value={conteoMostrado.zonas.SUR.total} max={maxZonaTotal} />
-              <div style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>Comparación vs zona mayor</div>
-            </div>
-            <div style={{ marginTop: 10, fontSize: 12, color: "#64748b" }}>
-              Top: <strong>{topIncidenciaPorZona.SUR.incidencia}</strong> ({topIncidenciaPorZona.SUR.total})
-            </div>
-          </div>
-        </div>
-
-        <div style={S.metricPanel}>
-          <div style={S.metricHeaderRow}>
-            <div style={{ fontWeight: 900, fontSize: 16 }}>MÉTRICAS (comparativo con barras)</div>
-
-            <label style={{ fontSize: 13, fontWeight: 800 }}>
-              Zona:
-              <select value={zonaMetricas} onChange={(e) => setZonaMetricas(e.target.value as ZonaUI)} style={S.select}>
-                <option value="TODAS">TODAS</option>
-                <option value="NORTE">NORTE</option>
-                <option value="CENTRO">CENTRO</option>
-                <option value="SUR">SUR</option>
-              </select>
-            </label>
-
-            <div style={{ fontSize: 13, color: "#0f172a" }}>
-              <strong>Total hechos:</strong> {loadingConteo ? "..." : totalMetricas}
-            </div>
-          </div>
-
-          {errorConteo ? <div style={{ marginTop: 10, color: "#991b1b", fontWeight: 800 }}>Error: {errorConteo}</div> : null}
-
-          <div style={S.top5Grid}>
-            {rankingZonaSeleccionadaTop5.map((it, idx) => (
-              <div key={`${it.incidencia}-${idx}`} style={S.top5Card}>
-                <div style={S.top5Title}>TOP {idx + 1}</div>
-                <div style={S.top5Incidencia}>{it.incidencia}</div>
-                <div style={S.top5Total}>{it.total}</div>
-                <div style={{ marginTop: 10 }}>
-                  <Bar value={it.total} max={maxTop5} height={9} />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button type="button" style={S.smallBtn} onClick={() => void fetchConteo()}>
-              Refrescar datos
-            </button>
-            <button type="button" style={S.darkBtn} onClick={() => setView("RESUMEN")}>
-              Volver a ZONAS
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
+  // USUARIOS
   const allUsers = useMemo(() => {
     const qx = q.trim().toLowerCase();
     const app = usersApp.map((u) => ({ tipo: "APP" as const, u }));
     const adm = usersAdmin.map((u) => ({ tipo: "ADMIN" as const, u }));
-
     let merged = [...app, ...adm];
-
     if (tipoUsers !== "TODOS") merged = merged.filter((x) => x.tipo === tipoUsers);
-
     if (qx) {
       merged = merged.filter(({ u }) => {
-        const nombre = (u.nombres || u.nombre || u.usuario || u.nombre_usuario || "").toString().toLowerCase();
-        const usuario = (u.usuario || u.nombre_usuario || "").toString().toLowerCase();
-        const dni = (u.dni || "").toString().toLowerCase();
-        return nombre.includes(qx) || usuario.includes(qx) || dni.includes(qx);
+        const txt = [u.nombres, u.nombre, u.usuario, u.dni].join(" ").toLowerCase();
+        return txt.includes(qx);
       });
     }
-
     merged.sort((a, b) => a.u.id - b.u.id);
     return merged;
   }, [usersApp, usersAdmin, tipoUsers, q]);
@@ -425,198 +388,144 @@ export default function CallCenterDashboard({
     setOpenModal(true);
   };
 
-  const renderUsers = () => {
-    return (
-      <div style={S.conteoWrap}>
-        <div style={S.usersPanel}>
-          <div style={S.usersHeader}>
-            <div style={S.usersTitle}>VER USUARIOS (APP y ADMIN)</div>
-
-            <div style={S.searchRow}>
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Buscar por nombre / usuario / DNI..."
-                style={S.input}
-              />
-
-              <div style={S.pillsRow}>
-                <button type="button" style={S.pill(tipoUsers === "TODOS")} onClick={() => setTipoUsers("TODOS")}>
-                  TODOS
-                </button>
-                <button type="button" style={S.pill(tipoUsers === "APP")} onClick={() => setTipoUsers("APP")}>
-                  APP
-                </button>
-                <button type="button" style={S.pill(tipoUsers === "ADMIN")} onClick={() => setTipoUsers("ADMIN")}>
-                  ADMIN
-                </button>
-              </div>
-
-              <button type="button" style={S.smallBtn} onClick={() => void fetchUsers()}>
-                Refrescar usuarios
-              </button>
-
-              <button type="button" style={S.darkBtn} onClick={() => setView("RESUMEN")}>
-                Volver a ZONAS
-              </button>
-            </div>
-          </div>
-
-          {errorUsers ? <div style={{ color: "#991b1b", fontWeight: 900, marginBottom: 10 }}>Error: {errorUsers}</div> : null}
-
-          <div style={S.tableWrap}>
-            <table style={S.table}>
-              <thead>
-                <tr>
-                  <th style={S.th}>Tipo</th>
-                  <th style={S.th}>ID</th>
-                  <th style={S.th}>Nombre</th>
-                  <th style={S.th}>Usuario</th>
-                  <th style={S.th}>Cargo/Rol</th>
-                  <th style={S.th}>DNI</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loadingUsers ? (
-                  <tr>
-                    <td style={S.td} colSpan={6}>
-                      Cargando usuarios...
-                    </td>
-                  </tr>
-                ) : allUsers.length === 0 ? (
-                  <tr>
-                    <td style={S.td} colSpan={6}>
-                      No hay usuarios para mostrar.
-                    </td>
-                  </tr>
-                ) : (
-                  allUsers.map(({ tipo, u }) => {
-                    const nombre = (u.nombres || u.nombre || u.usuario || u.nombre_usuario || "-").toString();
-                    const usuario = (u.usuario || u.nombre_usuario || "-").toString();
-                    const cargo = (u.rol || u.cargo || "-").toString();
-
-                    return (
-                      <tr
-                        key={`${tipo}-${u.id}`}
-                        style={S.row}
-                        onClick={() => handleOpenUser(u, tipo)}
-                        title="Click para ver perfil y partes"
-                      >
-                        <td style={S.td}>
-                          <strong>{tipo}</strong>
-                        </td>
-                        <td style={S.td}>{u.id}</td>
-                        <td style={S.td}>{nombre}</td>
-                        <td style={S.td}>{usuario}</td>
-                        <td style={S.td}>{cargo}</td>
-                        <td style={S.td}>{u.dni || "-"}</td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div style={{ marginTop: 10, fontSize: 12, color: "#64748b", fontWeight: 800 }}>
-            Tip: haz click en un usuario para abrir su perfil y ver/descargar sus partes.
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div style={S.layoutWrap}>
       <div style={S.topRow}>
         <div style={S.panelCallCenter}>
-          <div style={{ fontWeight: 900, fontSize: "18px", textAlign: "center" }}>Panel CALL CENTER</div>
-
+          <div style={{ fontWeight: 900, fontSize: "20px", textAlign: "center", marginBottom: "10px" }}>
+            PANEL DE CONTROL
+          </div>
           <div style={S.bigTabs}>
             <button type="button" style={S.tabBtn(view === "RESUMEN")} onClick={() => setView("RESUMEN")}>
               ZONAS
             </button>
-
             <button type="button" style={S.tabBtn(view === "METRICAS")} onClick={() => setView("METRICAS")}>
-              MÉTRICAS
+              MÉTRICAS (BI)
             </button>
-
             <button type="button" style={S.tabBtn(view === "USUARIOS")} onClick={() => setView("USUARIOS")}>
-              VER USUARIOS
+              USUARIOS
             </button>
           </div>
-
           <div style={S.btnRow}>
             <button type="button" style={S.smallBtn} onClick={onBack}>
               Volver
             </button>
             <button type="button" style={S.darkBtn} onClick={onLogout}>
-              Cerrar sesión
+              Salir
             </button>
-            <button type="button" style={S.smallBtn} onClick={() => void fetchConteo()}>
-              Refrescar conteo
+            {/* BOTÓN F5 REAL */}
+            <button type="button" style={S.smallBtn} onClick={() => window.location.reload()}>
+              ⟳ F5
             </button>
           </div>
-
-          <div style={{ marginTop: "10px", color: "#64748b", fontSize: "12px" }}>
-            Usuario actual: <strong>{userName}</strong>
+          <div style={{ marginTop: "10px", fontSize: "12px", color: "#64748b", display: "flex", justifyContent: "space-between" }}>
+            <span>Usuario: <strong>{userName}</strong></span>
           </div>
         </div>
 
         <div style={S.internalCard}>
-          <div style={{ fontSize: "12px", color: "#475569" }}>Datos internos (CALL CENTER)</div>
-
-          <div style={{ marginTop: "8px", fontSize: "13px" }}>
-            <div>
-              <strong>Nombre:</strong> {internoNombre || "-"}
-            </div>
-            <div style={{ marginTop: "6px" }}>
-              <strong>Ropero Turno:</strong> {internoRoperoTurno || "-"}
-            </div>
+          <div style={{ fontSize: "12px", color: "#475569" }}>Datos Internos</div>
+          <div style={{ marginTop: "5px", fontSize: "13px" }}>
+            <strong>{internoNombre || "-"}</strong> <br />
+            <span style={{ fontSize: "11px", color: "#64748b" }}>{internoRoperoTurno}</span>
           </div>
-
-          {onOpenInternalLogin ? (
-            <div style={{ marginTop: "10px" }}>
-              <button
-                type="button"
-                style={{ ...S.smallBtn, width: "100%", background: "#fff", fontWeight: 800 }}
-                onClick={onOpenInternalLogin}
-              >
-                Cambiar datos internos
-              </button>
-            </div>
-          ) : null}
+          {onOpenInternalLogin && (
+            <button
+              type="button"
+              style={{ ...S.smallBtn, width: "100%", background: "#fff", marginTop: "8px" }}
+              onClick={onOpenInternalLogin}
+            >
+              Cambiar
+            </button>
+          )}
         </div>
       </div>
 
       <div style={S.midArea}>
         {view === "METRICAS" ? (
-          renderMetricas()
+          renderMetricasExecutive()
         ) : view === "USUARIOS" ? (
-          renderUsers()
+          <div style={S.conteoWrap}>
+            <div style={S.usersPanel}>
+               <div style={{ display: 'flex', gap: '10px', padding: '15px', borderBottom: '1px solid #f1f5f9' }}>
+                 <input placeholder="Buscar usuario..." value={q} onChange={e => setQ(e.target.value)} style={S.input} />
+                 
+                 {/* Indicador visual de carga y error en usuarios */}
+                 <button type="button" style={{...S.smallBtn, opacity: loadingUsers ? 0.6 : 1}} onClick={() => void fetchUsers()}>
+                    {loadingUsers ? "Cargando..." : "Refrescar"}
+                 </button>
+
+                 <div style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
+                    {(["TODOS", "APP", "ADMIN"] as const).map(f => (
+                       <button 
+                         key={f}
+                         type="button"
+                         style={{
+                           ...S.smallBtn, 
+                           background: tipoUsers === f ? "#0f172a" : "#fff",
+                           color: tipoUsers === f ? "#fff" : "#475569"
+                         }}
+                         onClick={() => setTipoUsers(f)}
+                       >
+                         {f}
+                       </button>
+                    ))}
+                 </div>
+               </div>
+               
+               {/* Mensaje de error de usuarios si existe */}
+               {errorUsers && <div style={{padding:"10px", color:"red", fontSize:"12px"}}>{errorUsers}</div>}
+
+               <div style={S.tableWrap}>
+                 <table style={S.table}>
+                   <thead>
+                     <tr>
+                       <th style={{...S.execTh, padding: '12px'}}>ID</th>
+                       <th style={{...S.execTh, padding: '12px'}}>Usuario</th>
+                       <th style={{...S.execTh, padding: '12px'}}>Nombre</th>
+                       <th style={{...S.execTh, padding: '12px'}}>Rol</th>
+                       <th style={{...S.execTh, padding: '12px'}}>DNI</th>
+                     </tr>
+                   </thead>
+                   <tbody>
+                     {allUsers.map(({u, tipo}) => (
+                       <tr key={`${tipo}-${u.id}`} onClick={() => handleOpenUser(u, tipo)} style={{cursor:'pointer', borderBottom:'1px solid #f8fafc'}}>
+                         <td style={{padding:'12px', fontSize:'13px'}}>{u.id}</td>
+                         <td style={{padding:'12px', fontSize:'13px', fontWeight:600}}>{u.usuario || u.nombre_usuario}</td>
+                         <td style={{padding:'12px', fontSize:'13px'}}>{u.nombres || u.nombre}</td>
+                         <td style={{padding:'12px', fontSize:'13px'}}>
+                           <span style={{
+                             padding:'2px 8px', borderRadius:'4px', fontSize:'11px', fontWeight:700,
+                             background: tipo === 'ADMIN' ? '#fef3c7' : '#e0f2fe',
+                             color: tipo === 'ADMIN' ? '#d97706' : '#0369a1'
+                           }}>
+                             {tipo}
+                           </span>
+                         </td>
+                         <td style={{padding:'12px', fontSize:'13px'}}>{u.dni || "-"}</td>
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+               </div>
+            </div>
+          </div>
         ) : (
           <div style={S.conteoWrap}>
-            {errorConteo ? (
-              <div style={S.errorBox}>
-                Error cargando conteo: <strong>{errorConteo}</strong>
-              </div>
-            ) : null}
-
+            {errorConteo && <div style={S.errorBox}>{errorConteo}</div>}
             <div style={S.zonesRow}>
-              {renderZona("NORTE")}
-              {renderZona("CENTRO")}
-              {renderZona("SUR")}
+              {renderZonaSimple("NORTE")}
+              {renderZonaSimple("CENTRO")}
+              {renderZonaSimple("SUR")}
             </div>
-
             <div style={S.totalBar}>
-              <div style={{ fontWeight: 900 }}>TOTAL INCIDENCIAS DE LAS 3 ZONAS:</div>
-              <div style={{ fontWeight: 900, fontSize: "18px" }}>{loadingConteo ? "..." : conteoMostrado.totalGeneral}</div>
+              <div>TOTAL INCIDENCIAS HOY</div>
+              <div style={{ fontSize: "24px", fontWeight: 900 }}>{conteoMostrado.totalGeneral}</div>
             </div>
           </div>
         )}
       </div>
 
-      {/* ✅ Modal de perfil + partes (ya incluye descarga del parte en el archivo 3) */}
       <UserDetailsModal open={openModal} onClose={() => setOpenModal(false)} usuario={usuarioModal} />
     </div>
   );

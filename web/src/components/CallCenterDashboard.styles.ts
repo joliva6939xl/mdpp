@@ -1,348 +1,329 @@
-// web/src/components/CallCenterDashboard.styles.ts
 import type { CSSProperties } from "react";
 
-export const ccdStyles = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const ccdStyles: Record<string, any> = {
   layoutWrap: {
-    width: "100%",
-    minHeight: "calc(100vh - 120px)",
-    position: "relative",
     display: "flex",
     flexDirection: "column",
-    gap: "24px",
-  } as CSSProperties,
-
+    height: "100vh",
+    backgroundColor: "#f1f5f9",
+    fontFamily: "'Inter', sans-serif",
+    overflow: "hidden",
+  },
   topRow: {
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "16px",
-    padding: "10px 12px",
-  } as CSSProperties,
-
+    gap: "20px",
+    padding: "20px",
+    backgroundColor: "#ffffff",
+    borderBottom: "1px solid #e2e8f0",
+    alignItems: "stretch",
+    flexShrink: 0,
+  },
   panelCallCenter: {
-    width: "680px",
-    maxWidth: "100%",
-    background: "#fff",
-    borderRadius: "16px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-    padding: "18px 22px",
-  } as CSSProperties,
-
-  internalCard: {
-    minWidth: "280px",
-    maxWidth: "360px",
-    background: "#fff",
-    borderRadius: "12px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-    padding: "12px 14px",
-  } as CSSProperties,
-
-  midArea: {
-    width: "100%",
-    display: "flex",
-    justifyContent: "center",
-    padding: "0 12px",
-  } as CSSProperties,
-
-  conteoWrap: {
-    width: "min(1200px, 100%)",
+    flex: 1,
     display: "flex",
     flexDirection: "column",
-    gap: "18px",
-    alignItems: "center",
-  } as CSSProperties,
-
-  zonesRow: {
-    width: "100%",
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: "28px",
-    alignItems: "start",
-  } as CSSProperties,
-
-  zoneCard: {
-    background: "#fff",
-    borderRadius: "16px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-    padding: "16px",
-    minHeight: "320px",
-  } as CSSProperties,
-
-  zoneTitle: {
-    fontSize: "14px",
+    gap: "15px",
+  },
+  internalCard: {
+    width: "280px",
+    backgroundColor: "#f8fafc",
+    border: "1px solid #e2e8f0",
+    borderRadius: "12px",
+    padding: "15px",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+  },
+  bigTabs: {
+    display: "flex",
+    gap: "10px",
+    justifyContent: "center",
+  },
+  tabBtn: (active: boolean): CSSProperties => ({
+    padding: "10px 24px",
+    borderRadius: "8px",
+    border: "none",
+    cursor: "pointer",
     fontWeight: 800,
-    letterSpacing: "0.6px",
-    color: "#0f172a",
-    display: "flex",
-    justifyContent: "space-between",
-    marginBottom: "10px",
-  } as CSSProperties,
-
-  totalBar: {
-    width: "min(1200px, 100%)",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    background: "#fff",
-    borderRadius: "16px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-    padding: "14px 16px",
-  } as CSSProperties,
-
+    fontSize: "14px",
+    backgroundColor: active ? "#0f172a" : "#e2e8f0",
+    color: active ? "#ffffff" : "#64748b",
+    transition: "all 0.2s",
+  }),
   btnRow: {
     display: "flex",
     gap: "10px",
-    marginTop: "14px",
     justifyContent: "center",
-    flexWrap: "wrap",
-  } as CSSProperties,
-
-  bigTabs: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
-    gap: "10px",
-    marginTop: "10px",
-  } as CSSProperties,
-
-  tabBtn: (active: boolean): CSSProperties => ({
-    padding: "12px 14px",
-    borderRadius: "12px",
-    border: "1px solid #d1d5db",
-    background: active ? "#2f6fed" : "#f3f4f6",
-    color: active ? "#fff" : "#111827",
-    fontWeight: 800,
-    cursor: "pointer",
-  }),
-
+    marginTop: "5px",
+  },
   smallBtn: {
-    padding: "10px 14px",
-    borderRadius: "12px",
-    border: "1px solid #d1d5db",
-    background: "#f8fafc",
+    padding: "6px 14px",
+    borderRadius: "6px",
+    border: "1px solid #cbd5e1",
+    backgroundColor: "#ffffff",
     cursor: "pointer",
-    fontWeight: 700,
-  } as CSSProperties,
-
+    fontSize: "12px",
+    fontWeight: 600,
+    color: "#475569",
+  },
   darkBtn: {
-    padding: "10px 14px",
-    borderRadius: "12px",
-    border: "1px solid #0f172a",
-    background: "#0f172a",
-    color: "#fff",
+    padding: "6px 14px",
+    borderRadius: "6px",
+    border: "none",
+    backgroundColor: "#dc2626",
     cursor: "pointer",
+    fontSize: "12px",
+    fontWeight: 600,
+    color: "#ffffff",
+  },
+  midArea: {
+    flex: 1,
+    overflowY: "auto",
+    padding: "20px",
+    display: "flex",
+    justifyContent: "center",
+  },
+  conteoWrap: {
+    width: "100%",
+    maxWidth: "1200px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "20px",
+  },
+  // ─── CAMBIO AQUÍ: Forzamos 3 columnas exactas ───
+  zonesRow: {
+    display: "grid" as const,
+    gridTemplateColumns: "repeat(3, 1fr)", // <--- 3 columnas fijas (Norte, Centro, Sur)
+    gap: "20px",
+  },
+  zoneCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: "12px",
+    padding: "20px",
+    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+    borderTop: "4px solid #3b82f6",
+  },
+  zoneTitle: {
+    display: "flex",
+    justifyContent: "space-between",
+    fontSize: "16px",
     fontWeight: 800,
-  } as CSSProperties,
-
+    marginBottom: "15px",
+    paddingBottom: "10px",
+    borderBottom: "1px solid #f1f5f9",
+    color: "#1e293b",
+  },
   listItem: {
     display: "flex",
     justifyContent: "space-between",
-    gap: "10px",
-    padding: "8px 10px",
-    borderRadius: "10px",
-    border: "1px solid #e5e7eb",
-    marginBottom: "8px",
-    fontSize: "13px",
-  } as CSSProperties,
-
-  statGrid: {
-    width: "min(1200px, 100%)",
-    display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    gap: 14,
-  } as CSSProperties,
-
-  statCard: {
-    background: "#fff",
-    borderRadius: 16,
-    boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-    padding: 14,
-    border: "1px solid #e5e7eb",
-  } as CSSProperties,
-
-  statTitle: {
-    fontSize: 12,
-    color: "#475569",
-    fontWeight: 800,
-    marginBottom: 8,
-  } as CSSProperties,
-
-  statValue: {
-    fontSize: 20,
-    fontWeight: 900,
-    color: "#0f172a",
-  } as CSSProperties,
-
-  metricPanel: {
-    width: "min(1200px, 100%)",
-    background: "#fff",
-    borderRadius: "16px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-    padding: "16px",
-  } as CSSProperties,
-
-  metricHeaderRow: {
+    padding: "8px 0",
+    borderBottom: "1px solid #f8fafc",
+    fontSize: "14px",
+    color: "#334155",
+  },
+  totalBar: {
+    backgroundColor: "#1e293b",
+    color: "#fff",
+    padding: "20px",
+    borderRadius: "12px",
     display: "flex",
     justifyContent: "space-between",
-    gap: 12,
-    flexWrap: "wrap",
-  } as CSSProperties,
-
-  top5Grid: {
-    marginTop: 14,
-    display: "grid",
-    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-    gap: 12,
-  } as CSSProperties,
-
-  top5Card: {
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
-    borderRadius: 14,
-    padding: 12,
-  } as CSSProperties,
-
-  top5Title: {
-    fontSize: 12,
-    color: "#475569",
-    fontWeight: 900,
-  } as CSSProperties,
-
-  top5Incidencia: {
-    marginTop: 8,
-    fontSize: 12,
-    color: "#0f172a",
-    fontWeight: 800,
-    minHeight: 34,
-  } as CSSProperties,
-
-  top5Total: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: 900,
-  } as CSSProperties,
-
+    alignItems: "center",
+    fontSize: "16px",
+    boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
+  },
   errorBox: {
-    width: "min(1200px, 100%)",
-    background: "#fff",
-    borderRadius: "16px",
-    padding: "14px 16px",
-    border: "1px solid #fecaca",
+    backgroundColor: "#fee2e2",
     color: "#991b1b",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-  } as CSSProperties,
-
-  barOuter: (height: number): CSSProperties => ({
-    width: "100%",
-    height,
-    borderRadius: 999,
-    background: "#e5e7eb",
-    overflow: "hidden",
-    border: "1px solid #d1d5db",
-  }),
-
-  barInner: (pct: number): CSSProperties => ({
-    height: "100%",
-    width: `${pct}%`,
-    background: "#0f172a",
-    borderRadius: 999,
-    transition: "width 250ms ease",
-  }),
-
-  select: {
-    marginLeft: 8,
-    padding: "8px 10px",
-    borderRadius: 10,
-    border: "1px solid #d1d5db",
-    fontWeight: 800,
-  } as CSSProperties,
-
-  // ──────────────────────────────
-  // ✅ NUEVO: Vista "VER USUARIOS"
-  // ──────────────────────────────
+    padding: "15px",
+    borderRadius: "8px",
+    fontWeight: 600,
+    textAlign: "center",
+  },
   usersPanel: {
-    width: "min(1200px, 100%)",
-    background: "#fff",
-    borderRadius: "16px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-    padding: "16px",
-  } as CSSProperties,
-
-  usersHeader: {
+    backgroundColor: "#fff",
+    borderRadius: "12px",
+    boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
+    overflow: "hidden",
     display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    flexWrap: "wrap",
-    marginBottom: 12,
-  } as CSSProperties,
-
-  usersTitle: {
-    fontSize: 16,
-    fontWeight: 900,
-    color: "#0f172a",
-  } as CSSProperties,
-
-  searchRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap",
-  } as CSSProperties,
-
-  input: {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid #d1d5db",
-    minWidth: 260,
-    fontWeight: 700,
-  } as CSSProperties,
-
-  pillsRow: {
-    display: "flex",
-    gap: 8,
-    flexWrap: "wrap",
-  } as CSSProperties,
-
-  pill: (active: boolean): CSSProperties => ({
-    padding: "8px 12px",
-    borderRadius: 999,
-    border: "1px solid #d1d5db",
-    background: active ? "#0f172a" : "#f8fafc",
-    color: active ? "#fff" : "#0f172a",
-    fontWeight: 800,
-    cursor: "pointer",
-  }),
-
+    flexDirection: "column",
+    height: "100%", 
+    maxHeight: "700px",
+  },
   tableWrap: {
-    width: "100%",
     overflowX: "auto",
-    border: "1px solid #e5e7eb",
-    borderRadius: 14,
-  } as CSSProperties,
-
+    flex: 1, 
+  },
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    fontSize: 13,
-  } as CSSProperties,
-
-  th: {
-    textAlign: "left",
-    padding: "10px 12px",
-    background: "#f8fafc",
-    borderBottom: "1px solid #e5e7eb",
-    fontWeight: 900,
+    fontSize: "14px",
+  },
+  input: {
+    padding: "8px 12px",
+    borderRadius: "6px",
+    border: "1px solid #cbd5e1",
+    outline: "none",
+    fontSize: "13px",
+    width: "250px",
+  },
+  
+  // ─── ESTILOS EJECUTIVOS (BI) ───
+  execGrid: {
+    display: "grid" as const,
+    gridTemplateColumns: "repeat(3, 1fr)", // <--- También aquí para los KPIs
+    gap: "20px",
+    marginBottom: "20px",
+  },
+  kpiCard: {
+    background: "#ffffff",
+    borderRadius: "12px",
+    padding: "20px",
+    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+    borderLeft: "5px solid #3b82f6",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "space-between",
+    transition: "transform 0.2s",
+  },
+  kpiLabel: {
+    fontSize: "13px",
+    color: "#64748b",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+  },
+  kpiValue: {
+    fontSize: "36px",
+    fontWeight: 800,
+    color: "#1e293b",
+    marginTop: "5px",
+  },
+  kpiSub: {
+    fontSize: "12px",
+    color: "#94a3b8",
+    marginTop: "5px",
+    fontWeight: 500,
+  },
+  chartContainer: {
+    background: "#ffffff",
+    borderRadius: "16px",
+    padding: "24px",
+    boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
+    marginBottom: "20px",
+    border: "1px solid #f1f5f9",
+  },
+  chartHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "25px",
+    borderBottom: "1px solid #e2e8f0",
+    paddingBottom: "15px",
+  },
+  chartTitle: {
+    fontSize: "18px",
+    fontWeight: 800,
     color: "#0f172a",
-    whiteSpace: "nowrap",
-  } as CSSProperties,
-
-  td: {
-    padding: "10px 12px",
-    borderBottom: "1px solid #f1f5f9",
-    whiteSpace: "nowrap",
-  } as CSSProperties,
-
-  row: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+  },
+  select: {
+    padding: "6px 12px",
+    borderRadius: "6px",
+    border: "1px solid #cbd5e1",
+    fontSize: "13px",
+    color: "#334155",
+    backgroundColor: "#f8fafc",
+    outline: "none",
+    fontWeight: 600,
     cursor: "pointer",
-  } as CSSProperties,
+  },
+  barChartFrame: {
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "space-around",
+    height: "280px",
+    paddingTop: "40px",
+    paddingBottom: "10px",
+    backgroundColor: "#fafafa",
+    borderRadius: "8px",
+    border: "1px dashed #e2e8f0",
+  },
+  barColumn: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    width: "15%",
+    minWidth: "60px",
+    position: "relative",
+    height: "100%",
+    justifyContent: "flex-end",
+  },
+  barFill: (heightPct: number, color: string): CSSProperties => ({
+    width: "100%",
+    height: `${heightPct}%`,
+    backgroundColor: color,
+    borderRadius: "6px 6px 0 0",
+    transition: "height 0.8s cubic-bezier(0.4, 0, 0.2, 1)",
+    position: "relative",
+    boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
+  }),
+  barLabel: {
+    marginTop: "12px",
+    fontWeight: 700,
+    color: "#475569",
+    fontSize: "14px",
+    textTransform: "uppercase",
+  },
+  barValueFloat: {
+    marginBottom: "8px",
+    fontWeight: 800,
+    fontSize: "16px",
+    color: "#1e293b",
+  },
+  execTable: {
+    width: "100%",
+    borderCollapse: "collapse",
+  },
+  execTh: {
+    textAlign: "left",
+    padding: "15px",
+    borderBottom: "2px solid #e2e8f0",
+    color: "#64748b",
+    fontSize: "12px",
+    fontWeight: 700,
+    textTransform: "uppercase",
+  },
+  execTd: {
+    padding: "15px",
+    borderBottom: "1px solid #f1f5f9",
+    color: "#334155",
+    fontWeight: 600,
+    fontSize: "14px",
+  },
+  badge: (rank: number): CSSProperties => ({
+    background: rank === 0 ? "#eff6ff" : "transparent",
+    color: rank === 0 ? "#1d4ed8" : "#64748b",
+    padding: "4px 10px",
+    borderRadius: "20px",
+    fontWeight: 800,
+    fontSize: "12px",
+    border: rank === 0 ? "1px solid #bfdbfe" : "1px solid transparent",
+  }),
+  progressBarBg: {
+    width: "100%",
+    height: "8px",
+    background: "#f1f5f9",
+    borderRadius: "4px",
+    overflow: "hidden",
+  },
+  progressBarFill: (pct: number, isTop: boolean): CSSProperties => ({
+    width: `${pct}%`,
+    height: "100%",
+    background: isTop ? "#3b82f6" : "#cbd5e1",
+    borderRadius: "4px",
+  }),
 };
