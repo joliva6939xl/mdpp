@@ -12,6 +12,7 @@ import {
   Modal,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   type ViewStyle,
   type TextStyle,
   type ImageStyle,
@@ -36,6 +37,54 @@ type Participante = {
 
 type SelectorItem = string;
 
+// ✅ COMPONENTES FUERA (evita que el TextInput pierda foco al escribir)
+type SectionProps = {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+};
+const Section: React.FC<SectionProps> = ({ title, subtitle, children }) => (
+  <View style={styles.card}>
+    <View style={styles.cardHeader}>
+      <Text style={styles.cardTitle}>{title}</Text>
+      {!!subtitle && <Text style={styles.cardSubtitle}>{subtitle}</Text>}
+    </View>
+    {children}
+  </View>
+);
+
+type FieldLabelProps = { text: string; required?: boolean };
+const FieldLabel: React.FC<FieldLabelProps> = ({ text, required }) => (
+  <Text style={styles.label}>
+    {text} {required ? <Text style={styles.req}>*</Text> : null}
+  </Text>
+);
+
+type SelectorProps = {
+  label: string;
+  value: string;
+  onPress: () => void;
+  placeholder?: string;
+  required?: boolean;
+};
+const Selector: React.FC<SelectorProps> = ({
+  label,
+  value,
+  onPress,
+  placeholder = "Seleccionar",
+  required,
+}) => (
+  <TouchableOpacity style={styles.selector} onPress={onPress} activeOpacity={0.9}>
+    <FieldLabel text={label} required={required} />
+    <View style={styles.selectorRow}>
+      <Text style={[styles.selectorText, !value ? styles.placeholder : null]}>
+        {value || placeholder}
+      </Text>
+      <Text style={styles.selectorArrow}>⌄</Text>
+    </View>
+  </TouchableOpacity>
+);
+
 export default function CrearParteScreen() {
   const router = useRouter();
   const { showAlert } = useAlert();
@@ -48,8 +97,8 @@ export default function CrearParteScreen() {
   const LISTAS = useMemo(
     () => ({
       sector: sectores, // ✅ 1..13
-      zona: ["NORTE", "CENTRO", "SUR"], // ✅ cambio solicitado
-      turno: ["MAÑANA", "TARDE", "NOCHE"],
+      zona: ["norte", "centro", "sur"], // ✅ cambio solicitado
+      turno: ["DIA  06:00 AM - 18:00 PM", "NOCHE 18:00 PM - 06:00 AM"],
       unidad_tipo: ["OMEGA", "ALFA"],
       incidencia: [
         "ROBO A TRANSEUNTE",
@@ -65,9 +114,16 @@ export default function CrearParteScreen() {
         "ALTERACION DEL ORDEN PUBLICO",
         "ACCIDENTES CON MATERIALES PELIGROSOS",
         "APOYO A EMERGENCIAS MEDICAS",
+        "PROTECCION ESCOLAR",
         "OTROS NO ESPECIFICADOS",
       ],
-      asunto: ["PATRULLAJE", "ALERTA RADIAL", "CENTRAL DE CAMARAS", "OPERATIVO", "LLAMADA PNP"],
+      asunto: [
+        "PATRULLAJE",
+        "ALERTA RADIAL",
+        "CENTRAL DE CAMARAS",
+        "OPERATIVO",
+        "LLAMADA PNP",
+      ],
     }),
     [sectores]
   );
@@ -232,7 +288,6 @@ export default function CrearParteScreen() {
           try {
             const resp = await fetch(file.uri);
             const blob = await resp.blob();
-            
             formData.append("evidencia", blob, fileName);
           } catch {
             // ignorar
@@ -318,345 +373,344 @@ export default function CrearParteScreen() {
     </TouchableOpacity>
   );
 
-  const Section = ({
-    title,
-    subtitle,
-    children,
-  }: {
-    title: string;
-    subtitle?: string;
-    children: React.ReactNode;
-  }) => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>{title}</Text>
-        {!!subtitle && <Text style={styles.cardSubtitle}>{subtitle}</Text>}
-      </View>
-      {children}
-    </View>
-  );
-
-  const FieldLabel = ({ text, required }: { text: string; required?: boolean }) => (
-    <Text style={styles.label}>
-      {text} {required ? <Text style={styles.req}>*</Text> : null}
-    </Text>
-  );
-
-  const Selector = ({
-    label,
-    value,
-    onPress,
-    placeholder = "Seleccionar",
-    required,
-  }: {
-    label: string;
-    value: string;
-    onPress: () => void;
-    placeholder?: string;
-    required?: boolean;
-  }) => (
-    <TouchableOpacity
-      style={styles.selector}
-      onPress={onPress}
-      activeOpacity={0.9}
-    >
-      <FieldLabel text={label} required={required} />
-      <View style={styles.selectorRow}>
-        <Text style={[styles.selectorText, !value ? styles.placeholder : null]}>
-          {value || placeholder}
-        </Text>
-        <Text style={styles.selectorArrow}>⌄</Text>
-      </View>
-    </TouchableOpacity>
-  );
-
   return (
     <ThemedView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
       >
-        <View style={styles.header}>
-          <ThemedText type="title" style={styles.title}>
-            Nuevo Parte Virtual
-          </ThemedText>
-          <Text style={styles.headerHint}>
-            Municipalidad de Puente Piedra • Vigilancia
-          </Text>
-        </View>
-
-        <Section
-          title="Datos principales"
-          subtitle="Complete lo esencial para registrar el parte."
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         >
-          <View style={styles.field}>
-            <FieldLabel text="N° Parte Físico" required />
-            <TextInput
-              style={styles.input}
-              placeholder="Ej: 000123"
-              value={form.parte_fisico}
-              onChangeText={(t) => handleChange("parte_fisico", t)}
-            />
+          <View style={styles.header}>
+            <ThemedText type="title" style={styles.title}>
+              Nuevo Parte Virtual
+            </ThemedText>
+            <Text style={styles.headerHint}>
+              Municipalidad de Puente Piedra • Vigilancia
+            </Text>
           </View>
 
-          <View style={styles.row}>
-            <View style={[styles.col, styles.colLeft]}>
-              <View style={styles.field}>
-                <FieldLabel text="Fecha" />
-                <TextInput
-                  style={styles.input}
-                  value={form.fecha}
-                  onChangeText={(t) => handleChange("fecha", t)}
-                />
-              </View>
-            </View>
-
-            <View style={[styles.col, styles.colRight]}>
-              <View style={styles.field}>
-                <FieldLabel text="Hora inicio" />
-                <TextInput
-                  style={styles.input}
-                  placeholder="HH:MM"
-                  value={form.hora}
-                  onChangeText={(t) => handleChange("hora", t)}
-                />
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.field}>
-            <FieldLabel text="Hora fin (opcional)" />
-            <TextInput
-              style={styles.input}
-              placeholder="HH:MM"
-              value={form.hora_fin}
-              onChangeText={(t) => handleChange("hora_fin", t)}
-            />
-          </View>
-
-          <View style={styles.row}>
-            <View style={[styles.col, styles.colLeft]}>
-              <Selector
-                label="Sector"
-                value={form.sector}
-                onPress={() =>
-                  abrirSelector("sector", "Selecciona Sector", LISTAS.sector)
-                }
-                placeholder="1 al 13"
+          <Section
+            title="Datos principales"
+            subtitle="Complete lo esencial para registrar el parte."
+          >
+            <View style={styles.field}>
+              <FieldLabel text="N° Parte Físico" required />
+              <TextInput
+                style={styles.input}
+                placeholder="Ej: 000123"
+                value={form.parte_fisico}
+                onChangeText={(t) => handleChange("parte_fisico", t)}
               />
             </View>
 
-            <View style={[styles.col, styles.colRight]}>
-              <Selector
-                label="Zona"
-                value={form.zona}
-                onPress={() => abrirSelector("zona", "Selecciona Zona", LISTAS.zona)}
-                placeholder="Norte / Centro / Sur"
-              />
-            </View>
-          </View>
-
-          <Selector
-            label="Turno"
-            value={form.turno}
-            onPress={() => abrirSelector("turno", "Selecciona Turno", LISTAS.turno)}
-          />
-
-          <View style={styles.field}>
-            <FieldLabel text="Lugar" />
-            <TextInput
-              style={styles.input}
-              placeholder="Dirección / referencia del hecho"
-              value={form.lugar}
-              onChangeText={(t) => handleChange("lugar", t)}
-            />
-          </View>
-        </Section>
-
-        <Section title="Unidad / Conductor" subtitle="Información del vehículo y personal a cargo.">
-          <View style={styles.row}>
-            <View style={[styles.col, styles.colLeft]}>
-              <Selector
-                label="Tipo de unidad"
-                value={form.unidad_tipo}
-                onPress={() =>
-                  abrirSelector("unidad_tipo", "Tipo de unidad", LISTAS.unidad_tipo)
-                }
-              />
-            </View>
-
-            <View style={[styles.col, styles.colRight]}>
-              <View style={styles.field}>
-                <FieldLabel text="N° unidad" />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Ej: 12"
-                  value={form.unidad_numero}
-                  onChangeText={(t) => handleChange("unidad_numero", t)}
-                />
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.row}>
-            <View style={[styles.col, styles.colLeft]}>
-              <View style={styles.field}>
-                <FieldLabel text="Placa" />
-                <TextInput
-                  style={styles.input}
-                  placeholder="ABC-123"
-                  value={form.placa}
-                  onChangeText={(t) => handleChange("placa", t)}
-                />
-              </View>
-            </View>
-
-            <View style={[styles.col, styles.colRight]}>
-              <View style={styles.field}>
-                <FieldLabel text="Conductor" />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Nombre del conductor"
-                  value={form.conductor}
-                  onChangeText={(t) => handleChange("conductor", t)}
-                />
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.field}>
-            <FieldLabel text="DNI Conductor" />
-            <TextInput
-              style={styles.input}
-              placeholder="DNI"
-              value={form.dni_conductor}
-              onChangeText={(t) => handleChange("dni_conductor", t)}
-              keyboardType="numeric"
-            />
-          </View>
-        </Section>
-
-        <Section title="Incidencia / Informe" subtitle="Tipo de incidencia y descripción detallada.">
-          <Selector
-            label="Incidencia"
-            required
-            value={form.sumilla}
-            onPress={() =>
-              abrirSelector("sumilla", "Selecciona Incidencia", LISTAS.incidencia)
-            }
-          />
-
-          <Selector
-            label="Origen de atención"
-            value={form.asunto}
-            onPress={() => abrirSelector("asunto", "Origen de atención", LISTAS.asunto)}
-          />
-
-          <View style={styles.field}>
-            <FieldLabel text="Detalle de ocurrencia" />
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Describa con claridad lo ocurrido (qué, quién, dónde, cuándo)."
-              value={form.ocurrencia}
-              onChangeText={(t) => handleChange("ocurrencia", t)}
-              multiline
-            />
-          </View>
-
-          <View style={styles.field}>
-            <FieldLabel text="Supervisor Zonal" />
-            <TextInput
-              style={styles.input}
-              placeholder="Supervisor Zonal"
-              value={form.sup_zonal}
-              onChangeText={(t) => handleChange("sup_zonal", t)}
-            />
-          </View>
-
-          <View style={styles.field}>
-            <FieldLabel text="Supervisor General" />
-            <TextInput
-              style={styles.input}
-              placeholder="Supervisor General"
-              value={form.sup_general}
-              onChangeText={(t) => handleChange("sup_general", t)}
-            />
-          </View>
-        </Section>
-
-        <Section title="Participantes (opcional)" subtitle="Agregar personas involucradas o intervenidas.">
-          <TouchableOpacity style={styles.softButton} onPress={agregarParticipante} activeOpacity={0.9}>
-            <View style={styles.softButtonIcon}>
-              <IconSymbol name="paperplane.fill" size={18} color="#fff" />
-            </View>
-            <Text style={styles.softButtonText}>Agregar participante</Text>
-          </TouchableOpacity>
-
-          {participantes.map((p, index) => (
-            <View key={index} style={[styles.cardInner, styles.mt12]}>
-              <Text style={styles.miniTitle}>Participante #{index + 1}</Text>
-
-              <View style={styles.field}>
-                <FieldLabel text="Nombres completos" />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Nombre y apellidos"
-                  value={p.nombre}
-                  onChangeText={(t) => cambiarParticipante(index, "nombre", t)}
-                />
-              </View>
-
-              <View style={styles.field}>
-                <FieldLabel text="DNI" />
-                <TextInput
-                  style={styles.input}
-                  placeholder="DNI"
-                  keyboardType="numeric"
-                  value={p.dni}
-                  onChangeText={(t) => cambiarParticipante(index, "dni", t)}
-                />
-              </View>
-            </View>
-          ))}
-        </Section>
-
-        <Section title="Evidencias" subtitle="Adjunte fotos o videos relacionados al parte.">
-          <TouchableOpacity style={styles.primaryButton} onPress={handleFilePick} activeOpacity={0.9}>
-            <View style={styles.primaryIcon}>
-              <IconSymbol name="chevron.left.forwardslash.chevron.right" size={18} color="#fff" />
-            </View>
-            <Text style={styles.primaryButtonText}>Agregar evidencia</Text>
-          </TouchableOpacity>
-
-          {archivos.length > 0 && (
-            <ScrollView horizontal style={styles.mt12} showsHorizontalScrollIndicator={false}>
-              {archivos.map((file, index) => (
-                <View key={index} style={styles.previewItem}>
-                  <Image source={{ uri: file.uri }} style={styles.previewImage} />
-                  <Text style={styles.previewLabel}>
-                    {file.type === "video" ? "Video" : "Foto"} {index + 1}
-                  </Text>
+            <View style={styles.row}>
+              <View style={[styles.col, styles.colLeft]}>
+                <View style={styles.field}>
+                  <FieldLabel text="Fecha" />
+                  <TextInput
+                    style={styles.input}
+                    value={form.fecha}
+                    onChangeText={(t) => handleChange("fecha", t)}
+                  />
                 </View>
-              ))}
-            </ScrollView>
-          )}
-        </Section>
+              </View>
 
-        <TouchableOpacity
-          style={[styles.saveButton, loading ? styles.saveButtonDisabled : null]}
-          onPress={enviarParte}
-          disabled={loading}
-          activeOpacity={0.9}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.saveButtonText}>Guardar Parte</Text>
-          )}
-        </TouchableOpacity>
+              <View style={[styles.col, styles.colRight]}>
+                <View style={styles.field}>
+                  <FieldLabel text="Hora inicio" />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="HH:MM"
+                    value={form.hora}
+                    onChangeText={(t) => handleChange("hora", t)}
+                  />
+                </View>
+              </View>
+            </View>
 
-        <View style={styles.spacer} />
-      </ScrollView>
+            <View style={styles.field}>
+              <FieldLabel text="Hora fin (opcional)" />
+              <TextInput
+                style={styles.input}
+                placeholder="HH:MM"
+                value={form.hora_fin}
+                onChangeText={(t) => handleChange("hora_fin", t)}
+              />
+            </View>
+
+            <View style={styles.row}>
+              <View style={[styles.col, styles.colLeft]}>
+                <Selector
+                  label="Sector"
+                  value={form.sector}
+                  onPress={() =>
+                    abrirSelector("sector", "Selecciona Sector", LISTAS.sector)
+                  }
+                  placeholder="1 al 13"
+                />
+              </View>
+
+              <View style={[styles.col, styles.colRight]}>
+                <Selector
+                  label="Zona"
+                  value={form.zona}
+                  onPress={() =>
+                    abrirSelector("zona", "Selecciona Zona", LISTAS.zona)
+                  }
+                  placeholder="Norte / Centro / Sur"
+                />
+              </View>
+            </View>
+
+            <Selector
+              label="Turno"
+              value={form.turno}
+              onPress={() =>
+                abrirSelector("turno", "Selecciona Turno", LISTAS.turno)
+              }
+            />
+
+            <View style={styles.field}>
+              <FieldLabel text="Lugar" />
+              <TextInput
+                style={styles.input}
+                placeholder="Dirección / referencia del hecho"
+                value={form.lugar}
+                onChangeText={(t) => handleChange("lugar", t)}
+              />
+            </View>
+          </Section>
+
+          <Section
+            title="Unidad / Conductor"
+            subtitle="Información del vehículo y personal a cargo."
+          >
+            <View style={styles.row}>
+              <View style={[styles.col, styles.colLeft]}>
+                <Selector
+                  label="Tipo de unidad"
+                  value={form.unidad_tipo}
+                  onPress={() =>
+                    abrirSelector(
+                      "unidad_tipo",
+                      "Tipo de unidad",
+                      LISTAS.unidad_tipo
+                    )
+                  }
+                />
+              </View>
+
+              <View style={[styles.col, styles.colRight]}>
+                <View style={styles.field}>
+                  <FieldLabel text="N° unidad" />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Ej: 12"
+                    value={form.unidad_numero}
+                    onChangeText={(t) => handleChange("unidad_numero", t)}
+                  />
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.row}>
+              <View style={[styles.col, styles.colLeft]}>
+                <View style={styles.field}>
+                  <FieldLabel text="Placa" />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="ABC-123"
+                    value={form.placa}
+                    onChangeText={(t) => handleChange("placa", t)}
+                  />
+                </View>
+              </View>
+
+              <View style={[styles.col, styles.colRight]}>
+                <View style={styles.field}>
+                  <FieldLabel text="Conductor" />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Nombre del conductor"
+                    value={form.conductor}
+                    onChangeText={(t) => handleChange("conductor", t)}
+                  />
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.field}>
+              <FieldLabel text="DNI Conductor" />
+              <TextInput
+                style={styles.input}
+                placeholder="DNI"
+                value={form.dni_conductor}
+                onChangeText={(t) => handleChange("dni_conductor", t)}
+                keyboardType="numeric"
+              />
+            </View>
+          </Section>
+
+          <Section
+            title="Incidencia / Informe"
+            subtitle="Tipo de incidencia y descripción detallada."
+          >
+            <Selector
+              label="Incidencia"
+              required
+              value={form.sumilla}
+              onPress={() =>
+                abrirSelector(
+                  "sumilla",
+                  "Selecciona Incidencia",
+                  LISTAS.incidencia
+                )
+              }
+            />
+
+            <Selector
+              label="Origen de atención"
+              value={form.asunto}
+              onPress={() =>
+                abrirSelector("asunto", "Origen de atención", LISTAS.asunto)
+              }
+            />
+
+            <View style={styles.field}>
+              <FieldLabel text="Detalle de ocurrencia" />
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Describa con claridad lo ocurrido (qué, quién, dónde, cuándo)."
+                value={form.ocurrencia}
+                onChangeText={(t) => handleChange("ocurrencia", t)}
+                multiline
+                textAlignVertical="top"
+                scrollEnabled={false}
+                blurOnSubmit={false}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <FieldLabel text="Supervisor Zonal" />
+              <TextInput
+                style={styles.input}
+                placeholder="Supervisor Zonal"
+                value={form.sup_zonal}
+                onChangeText={(t) => handleChange("sup_zonal", t)}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <FieldLabel text="Supervisor General" />
+              <TextInput
+                style={styles.input}
+                placeholder="Supervisor General"
+                value={form.sup_general}
+                onChangeText={(t) => handleChange("sup_general", t)}
+              />
+            </View>
+          </Section>
+
+          <Section
+            title="Participantes (opcional)"
+            subtitle="Agregar personas involucradas o intervenidas."
+          >
+            <TouchableOpacity
+              style={styles.softButton}
+              onPress={agregarParticipante}
+              activeOpacity={0.9}
+            >
+              <View style={styles.softButtonIcon}>
+                <IconSymbol name="paperplane.fill" size={18} color="#fff" />
+              </View>
+              <Text style={styles.softButtonText}>Agregar participante</Text>
+            </TouchableOpacity>
+
+            {participantes.map((p, index) => (
+              <View key={index} style={[styles.cardInner, styles.mt12]}>
+                <Text style={styles.miniTitle}>Participante #{index + 1}</Text>
+
+                <View style={styles.field}>
+                  <FieldLabel text="Nombres completos" />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Nombre y apellidos"
+                    value={p.nombre}
+                    onChangeText={(t) =>
+                      cambiarParticipante(index, "nombre", t)
+                    }
+                  />
+                </View>
+
+                <View style={styles.field}>
+                  <FieldLabel text="DNI" />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="DNI"
+                    keyboardType="numeric"
+                    value={p.dni}
+                    onChangeText={(t) => cambiarParticipante(index, "dni", t)}
+                  />
+                </View>
+              </View>
+            ))}
+          </Section>
+
+          <Section title="Evidencias" subtitle="Adjunte fotos o videos relacionados al parte.">
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={handleFilePick}
+              activeOpacity={0.9}
+            >
+              <View style={styles.primaryIcon}>
+                <IconSymbol
+                  name="chevron.left.forwardslash.chevron.right"
+                  size={18}
+                  color="#fff"
+                />
+              </View>
+              <Text style={styles.primaryButtonText}>Agregar evidencia</Text>
+            </TouchableOpacity>
+
+            {archivos.length > 0 && (
+              <ScrollView
+                horizontal
+                style={styles.mt12}
+                showsHorizontalScrollIndicator={false}
+              >
+                {archivos.map((file, index) => (
+                  <View key={index} style={styles.previewItem}>
+                    <Image source={{ uri: file.uri }} style={styles.previewImage} />
+                    <Text style={styles.previewLabel}>
+                      {file.type === "video" ? "Video" : "Foto"} {index + 1}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </Section>
+
+          <TouchableOpacity
+            style={[styles.saveButton, loading ? styles.saveButtonDisabled : null]}
+            onPress={enviarParte}
+            disabled={loading}
+            activeOpacity={0.9}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.saveButtonText}>Guardar Parte</Text>
+            )}
+          </TouchableOpacity>
+
+          <View style={styles.spacer} />
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <Modal
         visible={selectorVisible}
@@ -678,7 +732,11 @@ export default function CrearParteScreen() {
               removeClippedSubviews
             />
 
-            <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setSelectorVisible(false)} activeOpacity={0.9}>
+            <TouchableOpacity
+              style={styles.modalCloseBtn}
+              onPress={() => setSelectorVisible(false)}
+              activeOpacity={0.9}
+            >
               <Text style={styles.modalCloseText}>Cerrar</Text>
             </TouchableOpacity>
           </View>

@@ -1,10 +1,7 @@
-// mdpp/api/src/routes/callcenter.routes.js
 const express = require("express");
 const router = express.Router();
+const { obtenerConteoZonas } = require("../controllers/callcenter.controller");
 
-const { obtenerConteo } = require("../controllers/callcenter.controller");
-
-// ✅ Endpoint que tu frontend está llamando:
-router.get("/conteo", obtenerConteo);
+router.get("/conteo", obtenerConteoZonas);
 
 module.exports = router;

@@ -1,81 +1,104 @@
 // mdpp/api/src/controllers/callcenter.controller.js
-const db = require("../config/db");
-const pool = db.pool || db;
 
-/**
- * GET /api/callcenter/conteo
- * Agrupa por macro-zona (NORTE/CENTRO/SUR) usando "sector"
- * y por incidencia usando "sumilla".
- *
- * Devuelve:
- * {
- *   ok: true,
- *   total_general: number,
- *   zonas: {
- *     NORTE: { total: number, incidencias: [{ incidencia, total }] },
- *     CENTRO: { ... },
- *     SUR: { ... },
- *     OTROS: { ... } // si existiera algún sector fuera de 1/2/3
- *   },
- *   rows: [...] // opcional: filas crudas
- * }
- */
-const obtenerConteo = async (req, res) => {
+let pool;
+try {
+  pool = require("../db");
+} catch {
+  pool = require("../config/db");
+}
+
+const ZONAS = ["norte", "centro", "sur"];
+
+function initZonas() {
+  return {
+    norte: { total: 0, incidencias: [] },
+    centro: { total: 0, incidencias: [] },
+    sur: { total: 0, incidencias: [] },
+  };
+}
+
+async function detectarColumnaIncidencia() {
+  const q = `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema='public'
+      AND table_name='partes_virtuales'
+      AND column_name IN ('sumilla','incidencia');
+  `;
+  const { rows } = await pool.query(q);
+  const cols = rows.map((r) => r.column_name);
+  if (cols.includes("sumilla")) return "sumilla";
+  if (cols.includes("incidencia")) return "incidencia";
+  return null;
+}
+
+async function obtenerConteoZonas(req, res) {
   try {
+    const colInc = await detectarColumnaIncidencia();
+    if (!colInc) {
+      return res.status(500).json({
+        ok: false,
+        message:
+          "La tabla partes_virtuales no tiene columna 'sumilla' ni 'incidencia'.",
+      });
+    }
+
+    // 1) Conteo SOLO norte/centro/sur (normalizando)
     const sql = `
       SELECT
-        CASE
-          WHEN TRIM(COALESCE(sumilla, '')) = '' THEN 'SIN INCIDENCIA'
-          ELSE TRIM(sumilla)
-        END AS incidencia,
-        CASE
-          WHEN sector::text = '1' THEN 'NORTE'
-          WHEN sector::text = '2' THEN 'CENTRO'
-          WHEN sector::text = '3' THEN 'SUR'
-          ELSE 'OTROS'
-        END AS zona_macro,
+        LOWER(TRIM(zona)) AS zona_norm,
+        TRIM(COALESCE(${colInc}, 'SIN INCIDENCIA')) AS incidencia,
         COUNT(*)::int AS total
       FROM partes_virtuales
-      GROUP BY zona_macro, incidencia
-      ORDER BY zona_macro, total DESC, incidencia ASC;
+      WHERE zona IS NOT NULL
+        AND LOWER(TRIM(zona)) IN ('norte','centro','sur')
+      GROUP BY 1,2
+      ORDER BY 1, total DESC, incidencia ASC;
     `;
 
     const { rows } = await pool.query(sql);
 
-    const zonas = {};
-    let totalGeneral = 0;
-
+    const zonas = initZonas();
     for (const r of rows) {
-      const zona = r.zona_macro || "OTROS";
-      const incidencia = r.incidencia || "SIN INCIDENCIA";
-      const total = Number(r.total || 0);
-
-      totalGeneral += total;
-
-      if (!zonas[zona]) {
-        zonas[zona] = { total: 0, incidencias: [] };
-      }
-
-      zonas[zona].total += total;
-      zonas[zona].incidencias.push({ incidencia, total });
+      const z = r.zona_norm;
+      if (!zonas[z]) continue;
+      zonas[z].incidencias.push({ incidencia: r.incidencia, total: r.total });
+      zonas[z].total += r.total;
     }
+
+    const total_general =
+      (zonas.norte.total || 0) +
+      (zonas.centro.total || 0) +
+      (zonas.sur.total || 0);
+
+    // 2) Debug REAL: cuántas NO son norte/centro/sur
+    const debugSql = `
+      SELECT
+        COUNT(*)::int AS total_en_bd,
+        SUM(
+          CASE
+            WHEN zona IS NULL THEN 1
+            WHEN LOWER(TRIM(zona)) IN ('norte','centro','sur') THEN 0
+            ELSE 1
+          END
+        )::int AS total_fuera
+      FROM partes_virtuales;
+    `;
+    const dbg = await pool.query(debugSql);
 
     return res.json({
       ok: true,
-      total_general: totalGeneral,
       zonas,
-      rows, // útil para debug/validación
+      total_general, // ✅ SOLO norte/centro/sur
+      debug: dbg.rows?.[0] || null,
     });
   } catch (error) {
-    console.error("❌ Error en obtenerConteo (callcenter):", error);
+    console.error("Error en obtenerConteoZonas:", error);
     return res.status(500).json({
       ok: false,
-      message: "Error interno al generar conteo de callcenter",
-      error: error.message,
+      message: "Error obteniendo conteo de zonas.",
     });
   }
-};
+}
 
-module.exports = {
-  obtenerConteo,
-};
+module.exports = { obtenerConteoZonas };
