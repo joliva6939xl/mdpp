@@ -38,6 +38,10 @@ async function getConteoData() {
   if (!colInc) throw new Error("No column 'sumilla' or 'incidencia' found.");
 
   // 1) Conteo SOLO norte/centro/sur (normalizando)
+  // SE AGREGA FILTRO PARA EXCLUIR "BASURA" (incidencias numéricas o muy cortas)
+  // Heurística:
+  // - LENGTH > 2 (descarta "1", "a", "b", etc)
+  // - No empieza con dígito (descarta "2121...", "32asd...")
   const sql = `
     SELECT
       LOWER(TRIM(zona)) AS zona_norm,
@@ -46,6 +50,8 @@ async function getConteoData() {
     FROM partes_virtuales
     WHERE zona IS NOT NULL
       AND LOWER(TRIM(zona)) IN ('norte','centro','sur')
+      AND LENGTH(TRIM(COALESCE(${colInc}, ''))) > 2
+      AND TRIM(COALESCE(${colInc}, '')) !~ '^[0-9]'
     GROUP BY 1,2
     ORDER BY 1, total DESC, incidencia ASC;
   `;
