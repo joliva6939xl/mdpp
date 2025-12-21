@@ -324,12 +324,83 @@ const obtenerParte = async (req, res) => {
     `;
 
     const archivosResult = await pool.query(archivosQuery, [parteId]);
-    console.log(
-      `📎 Archivos en BD para parte ${parteId}:`,
-      archivosResult.rows
+    const dbFiles = archivosResult.rows || [];
+
+    // ─────────────────────────────────────────────
+    // LÓGICA DE DISCO (SOLICITUD: Consultar directamente en carpeta)
+    // ─────────────────────────────────────────────
+    // Validate ID to prevent traversal (just in case)
+    if (!/^\d+$/.test(String(parteId))) {
+       throw new Error("Invalid parteId");
+    }
+
+    const carpetaParte = path.join(
+      __dirname,
+      "../../uploads/partes",
+      String(parteId)
     );
 
-    const archivos = archivosResult.rows || [];
+    let diskFiles = [];
+    try {
+      // Use async fs to avoid blocking event loop
+      // Check if exists first (or catch error)
+      await fs.promises.access(carpetaParte, fs.constants.F_OK);
+      const filenames = await fs.promises.readdir(carpetaParte);
+
+      diskFiles = filenames
+        .filter((filename) => {
+          const lower = filename.toLowerCase();
+          const validExtensions = [
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".webp",
+            ".mp4",
+            ".mov",
+            ".avi",
+            ".mkv",
+          ];
+          return validExtensions.some((ext) => lower.endsWith(ext));
+        })
+        .map((filename, idx) => {
+          // Detectamos tipo por extensión
+          const lower = filename.toLowerCase();
+          const esVideo =
+            lower.endsWith(".mp4") ||
+            lower.endsWith(".mov") ||
+            lower.endsWith(".avi") ||
+            lower.endsWith(".mkv");
+
+          return {
+            id: idx + 1, // ID ficticio
+            parte_id: parteId,
+            tipo: esVideo ? "video" : "foto",
+            // Ruta relativa que espera el frontend (partes/ID/archivo)
+            ruta: `partes/${parteId}/${filename}`,
+            nombre_original: filename,
+          };
+        });
+
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+         console.error(
+          `❌ Error al leer directorio de parte ${parteId}:`,
+          err.message
+        );
+      }
+      // If ENOENT (not found), just ignore and diskFiles remains empty
+    }
+
+    // Priorizamos archivos en disco si existen, sino usamos BD
+    const archivos = diskFiles.length > 0 ? diskFiles : dbFiles;
+
+    console.log(
+      `📎 Archivos finales para parte ${parteId} (Origen: ${
+        diskFiles.length > 0 ? "DISCO" : "BD"
+      }):`,
+      archivos.length
+    );
 
     let fotos = archivos
       .filter((a) => {
@@ -346,23 +417,18 @@ const obtenerParte = async (req, res) => {
       .map((a) => a.ruta);
 
     if (archivos.length > 0 && fotos.length === 0 && videos.length === 0) {
-      console.warn(
-        `⚠️ Archivos sin tipo reconocido para parte ${parteId}, se envían todos como fotos`
-      );
+      // Fallback si no detecta tipos
       fotos = archivos.map((a) => a.ruta);
     }
 
     parte.fotos = fotos;
     parte.videos = videos;
 
-    console.log(
-      `📸 Resumen multimedia parte ${parteId}: fotos=${fotos.length}, videos=${videos.length}`
-    );
-
     return res.json({
       ok: true,
       parte,
       data: parte,
+      archivos, // Enviamos el array de objetos para que el front lo parsee
     });
   } catch (error) {
     console.error("❌ Error al obtener parte:", error);
