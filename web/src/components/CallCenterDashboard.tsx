@@ -1,532 +1,433 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { ccdStyles as S } from "./CallCenterDashboard.styles";
-import { UserDetailsModal } from "./UserDetailsModal";
-import { obtenerUsuariosSistema } from "../services/adminService";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { DownloadWordButton } from "./DownloadWordButton";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TIPOS Y DEFINICIONES
-// ─────────────────────────────────────────────────────────────────────────────
-type ZonaKey = "NORTE" | "CENTRO" | "SUR";
-type ZonaUI = "TODAS" | ZonaKey;
+const API_URL = "http://localhost:4000";
 
-type IncidenciaCount = { incidencia: string; total: number };
-type ZonaCount = { zona: ZonaKey; total: number; incidencias: IncidenciaCount[] };
-
-type ConteoData = {
-  zonas: Record<ZonaKey, ZonaCount>;
-  totalGeneral: number;
+// --- HELPERS ---
+const cleanFileName = (rawPath: any): string | null => {
+    if (!rawPath) return null;
+    const pathString = typeof rawPath === 'string' ? rawPath : (rawPath.ruta || rawPath.path || "");
+    return pathString.split(/[\\/]/).pop() || null;
 };
 
-type Props = {
-  userName: string;
-  onBack: () => void;
-  onLogout: () => void;
-  internoNombre: string;
-  internoRoperoTurno: string;
+// Opciones de fetch
+const fetchOptions = (token?: string | null) => ({
+    method: 'GET',
+    headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...(token ? { 'Authorization': token } : {})
+    }
+});
+
+interface CallCenterDashboardProps {
+  userName?: string;
+  onBack?: () => void;
+  onLogout?: () => void;
+  internoNombre?: string;
+  internoRoperoTurno?: string;
   onOpenInternalLogin?: () => void;
-};
-
-type UsuarioSistema = {
-  id: number;
-  nombre_usuario?: string;
-  usuario?: string;
-  nombre?: string;
-  nombres?: string;
-  rol?: string;
-  cargo?: string;
-  dni?: string;
-  celular?: string;
-  foto_ruta?: string | null;
-};
-
-type UsuarioModal = {
-  id: number;
-  nombre: string;
-  cargo: string;
-  usuario: string;
-  dni: string;
-  celular: string;
-  foto_ruta?: string | null;
-};
-
-const API_BASE = "http://localhost:4000";
-
-const emptyZona = (zona: ZonaKey): ZonaCount => ({ zona, total: 0, incidencias: [] });
-
-const conteoFallback: ConteoData = {
-  zonas: { NORTE: emptyZona("NORTE"), CENTRO: emptyZona("CENTRO"), SUR: emptyZona("SUR") },
-  totalGeneral: 0,
-};
-
-const normalizeIncidencia = (v: string) => v.trim() || "SIN INCIDENCIA";
-
-function toUsuarioModal(u: UsuarioSistema, tipo: "APP" | "ADMIN"): UsuarioModal {
-  const nombre = (u.nombres || u.nombre || u.usuario || u.nombre_usuario || `Usuario ${u.id}`).toString();
-  const usuario = (u.nombre_usuario || u.usuario || "").toString();
-  const cargo = (u.rol || u.cargo || (tipo === "ADMIN" ? "ADMIN" : "APP")).toString();
-  return {
-    id: u.id,
-    nombre,
-    cargo,
-    usuario,
-    dni: (u.dni || "-").toString(),
-    celular: (u.celular || "-").toString(),
-    foto_ruta: u.foto_ruta ?? null,
-  };
 }
 
-export default function CallCenterDashboard({
-  userName,
-  onBack,
-  onLogout,
-  internoNombre,
-  internoRoperoTurno,
-  onOpenInternalLogin,
-}: Props) {
-  const [view, setView] = useState<"RESUMEN" | "METRICAS" | "USUARIOS">("RESUMEN");
+const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({ 
+    userName, 
+    onLogout, 
+    internoNombre, 
+    internoRoperoTurno 
+}) => {
+    const navigate = useNavigate();
 
-  // Estados Conteo
-  const [loadingConteo, setLoadingConteo] = useState(false);
-  const [conteo, setConteo] = useState<ConteoData | null>(null);
-  const [errorConteo, setErrorConteo] = useState<string>("");
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  const [zonaMetricas, setZonaMetricas] = useState<ZonaUI>("TODAS");
+    // --- ESTADOS ---
+    const [fecha, setFecha] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [turno, setTurno] = useState<string>("MAÑANA");
+    const [counts, setCounts] = useState<any>({ Norte: 0, Centro: 0, Sur: 0 });
 
-  // Estados Usuarios
-  const [loadingUsers, setLoadingUsers] = useState(false);
-  const [errorUsers, setErrorUsers] = useState("");
-  const [usersApp, setUsersApp] = useState<UsuarioSistema[]>([]);
-  const [usersAdmin, setUsersAdmin] = useState<UsuarioSistema[]>([]);
-  const [tipoUsers, setTipoUsers] = useState<"APP" | "ADMIN" | "TODOS">("TODOS");
-  const [q, setQ] = useState("");
+    const [showModal, setShowModal] = useState(false);
+    const [showMediaModal, setShowMediaModal] = useState(false);
+    const [view, setView] = useState<'list' | 'detail'>('list');
+    
+    const [usuarios, setUsuarios] = useState<any[]>([]);
+    const [userSel, setUserSel] = useState<any>(null);
+    const [userPartes, setUserPartes] = useState<any[]>([]);
+    const [activeTab, setActiveTab] = useState<'cv' | 'partes'>('cv');
+    
+    // Estado del parte y media
+    const [parteSel, setParteSel] = useState<any>(null);
+    const [mediaSeleccionado, setMediaSeleccionado] = useState<any>(null);
 
-  const [openModal, setOpenModal] = useState(false);
-  const [usuarioModal, setUsuarioModal] = useState<UsuarioModal | null>(null);
+    // --- CARGA INICIAL ---
+    useEffect(() => {
+        const token = localStorage.getItem("adminToken");
+        const loadStats = async () => {
+            try {
+                const res = await fetch(`${API_URL}/api/callcenter/stats?fecha=${fecha}&turno=${turno}`, fetchOptions(token));
+                if (res.ok) {
+                    const data = await res.json();
+                    const calc = (arr: any) => arr?.reduce((acc: number, curr: any) => acc + curr.cant, 0) || 0;
+                    setCounts({
+                        Norte: calc(data.Norte),
+                        Centro: calc(data.Centro),
+                        Sur: calc(data.Sur)
+                    });
+                }
+            } catch (e) { console.error(e); }
+        };
+        loadStats();
+    }, [fecha, turno]);
 
-  const conteoMostrado = conteo ?? conteoFallback;
+    const openUsers = async () => {
+        setShowModal(true); 
+        setView('list');
+        const token = localStorage.getItem("adminToken");
+        try {
+            const res = await fetch(`${API_URL}/api/usuarios`, fetchOptions(token));
+            if (res.ok) setUsuarios(await res.json());
+        } catch (e) { console.error(e); }
+    };
 
-  const fetchConteo = useCallback(async (isBackground = false) => {
-    if (!isBackground) setLoadingConteo(true);
-    if (!isBackground) setErrorConteo("");
-    try {
-      const resp = await fetch(`${API_BASE}/api/callcenter/conteo`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      });
-      const text = await resp.text();
-      let json: unknown;
-      try {
-        json = JSON.parse(text) as unknown;
-      } catch {
-        throw new Error("El servidor no devolvió JSON válido.");
-      }
-      if (!resp.ok) throw new Error("Error consultando conteo");
+    const selectUser = async (u: any) => {
+        setUserSel(u); 
+        setView('detail'); 
+        setActiveTab('cv');
+        setParteSel(null);
+        const token = localStorage.getItem("adminToken");
+        try {
+            const res = await fetch(`${API_URL}/api/usuarios/${u.id}/partes`, fetchOptions(token));
+            if (res.ok) {
+                const data = await res.json();
+                setUserPartes(data.partes || []);
+            }
+        } catch (e) { console.error(e); }
+    };
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed = json as any;
-      const zonasRaw = parsed.data?.zonas ?? parsed.zonas ?? {};
+    // --- CARGAR DETALLE (Lógica Admin) ---
+    const handleSelectParte = async (idParte: number) => {
+        const token = localStorage.getItem("adminToken");
+        try {
+            const res = await fetch(`${API_URL}/api/partes/${idParte}`, fetchOptions(token));
+            const data = await res.json();
+            const base = data.parte || data.data || null;
 
-      const buildZona = (z: ZonaKey): ZonaCount => {
-        const zr = zonasRaw[z] ?? zonasRaw[z.toLowerCase()] ?? zonasRaw[z.toUpperCase()];
-        const total = Number(zr?.total ?? 0);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const incidencias = (zr?.incidencias ?? []).map((i: any) => ({
-          incidencia: normalizeIncidencia(String(i.incidencia ?? "SIN INCIDENCIA")),
-          total: Number(i.total ?? 0),
-        }));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        incidencias.sort((a: any, b: any) => b.total - a.total);
-        return { zona: z, total, incidencias };
-      };
+            if (base) {
+                const rawItems = data.archivos || base.archivos || [...(base.fotos || []), ...(base.videos || [])];
+                const mapped = rawItems.map((item: any, idx: number) => {
+                    const rutaReal = typeof item === 'string' ? item : (item.ruta || item.path || item.url || "");
+                    const fileName = cleanFileName(rutaReal);
+                    const urlFinal = fileName ? `${API_URL}/uploads/partes/${idParte}/${fileName}` : "";
+                    const tipoItem = item.tipo || "";
+                    const esVideo = tipoItem.includes("video") || rutaReal.toLowerCase().endsWith(".mp4") || rutaReal.toLowerCase().endsWith(".mov");
 
-      const zonaNorte = buildZona("NORTE");
-      const zonaCentro = buildZona("CENTRO");
-      const zonaSur = buildZona("SUR");
-      const totalCalculado = zonaNorte.total + zonaCentro.total + zonaSur.total;
+                    return {
+                        id: item.id || idx,
+                        tipo: esVideo ? "video" : "foto",
+                        ruta: urlFinal,
+                        nombre_original: item.nombre_original || "archivo"
+                    };
+                }).filter((x: any) => x.ruta !== "");
 
-      setConteo({
-        zonas: { NORTE: zonaNorte, CENTRO: zonaCentro, SUR: zonaSur },
-        totalGeneral: totalCalculado,
-      });
-      setLastUpdated(new Date());
-      setErrorConteo("");
-    } catch (err) {
-      console.error("Error fetching conteo:", err);
-      if (!isBackground) setErrorConteo(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      if (!isBackground) setLoadingConteo(false);
-    }
-  }, []);
+                setParteSel({ ...base, todosArchivos: mapped });
+            }
+        } catch (error) { console.error(error); }
+    };
 
-  const fetchUsers = async () => {
-    setLoadingUsers(true);
-    setErrorUsers("");
-    try {
-      const [appRes, adminRes] = await Promise.all([obtenerUsuariosSistema("APP"), obtenerUsuariosSistema("ADMIN")]);
-      
-      // Casteo seguro usando unknown primero
-      if (appRes.resp.ok) {
-        setUsersApp((appRes.json.usuarios as unknown) as UsuarioSistema[]);
-      }
-      if (adminRes.resp.ok) {
-        setUsersAdmin((adminRes.json.usuarios as unknown) as UsuarioSistema[]);
-      }
-    } catch (err) {
-      setErrorUsers(err instanceof Error ? err.message : "Error cargando usuarios");
-    } finally {
-      setLoadingUsers(false);
-    }
-  };
+    const getDato = (obj: any, posibles: string[]) => {
+        if (!obj) return '-';
+        for (const k of posibles) {
+            if (obj[k] && String(obj[k]).trim() !== "") return obj[k];
+        }
+        return '-';
+    };
 
-  useEffect(() => {
-    fetchConteo(false);
-    const intervalId = setInterval(() => fetchConteo(true), 5000);
-    return () => clearInterval(intervalId);
-  }, [fetchConteo]);
+    const fotoPerfilUrl = useMemo(() => {
+        if (!userSel?.foto_ruta) return null;
+        const file = cleanFileName(userSel.foto_ruta);
+        return file ? `${API_URL}/uploads/usuarios/${file}` : null;
+    }, [userSel]);
 
-  useEffect(() => {
-    // Si cambio a vista USUARIOS y está vacía, cargar.
-    if (view === "USUARIOS" && usersApp.length === 0 && usersAdmin.length === 0) {
-      void fetchUsers();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+    // --- NAVEGACIÓN GALERÍA (SOLO PARA MODAL) ---
+    const navegarGaleria = (direccion: 'prev' | 'next') => {
+        if (!parteSel?.todosArchivos || parteSel.todosArchivos.length <= 1) return;
+        const currentIndex = parteSel.todosArchivos.findIndex((m: any) => m.ruta === mediaSeleccionado?.ruta);
+        if (currentIndex === -1) return;
 
-  // Lógica Métricas
-  const zonaPrioritaria = useMemo(() => {
-    const arr = (["NORTE", "CENTRO", "SUR"] as ZonaKey[]).map((z) => ({
-      zona: z,
-      total: conteoMostrado.zonas[z].total,
-    }));
-    arr.sort((a, b) => b.total - a.total);
-    return arr[0]?.zona ?? "NORTE";
-  }, [conteoMostrado]);
+        let newIndex;
+        if (direccion === 'next') {
+            newIndex = (currentIndex + 1) % parteSel.todosArchivos.length;
+        } else {
+            newIndex = (currentIndex - 1 + parteSel.todosArchivos.length) % parteSel.todosArchivos.length;
+        }
+        setMediaSeleccionado(parteSel.todosArchivos[newIndex]);
+    };
 
-  const rankingTop5 = useMemo(() => {
-    let lista: IncidenciaCount[] = [];
-    if (zonaMetricas === "TODAS") {
-      lista = [
-        ...conteoMostrado.zonas.NORTE.incidencias,
-        ...conteoMostrado.zonas.CENTRO.incidencias,
-        ...conteoMostrado.zonas.SUR.incidencias,
-      ];
-    } else {
-      lista = conteoMostrado.zonas[zonaMetricas as ZonaKey].incidencias;
-    }
-    const map = new Map<string, number>();
-    lista.forEach((it) => {
-      const key = normalizeIncidencia(it.incidencia);
-      map.set(key, (map.get(key) ?? 0) + it.total);
-    });
-    const arr = Array.from(map.entries()).map(([incidencia, total]) => ({ incidencia, total }));
-    arr.sort((a, b) => b.total - a.total);
-    return arr.slice(0, 5);
-  }, [conteoMostrado, zonaMetricas]);
+    // --- ESTILOS ---
+    const styles: Record<string, React.CSSProperties> = {
+        container: { padding: '40px 20px', background: '#f4f6f8', minHeight: '100vh', fontFamily: "'Segoe UI', sans-serif" },
+        card: { background: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', marginBottom: '30px' },
+        input: { padding: '10px', border: '1px solid #cbd5e1', borderRadius: '6px', outline: 'none' },
+        btnNav: { background: '#e2e8f0', color: '#475569', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' },
+        
+        overlay: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9000 },
+        modal: { background: 'white', width: '95%', maxWidth: '1000px', height: '85vh', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' },
+        
+        mediaOverlay: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 },
+        mediaContent: { background: 'transparent', padding: '0', display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: '90%', maxHeight: '90%', position: 'relative' },
+        
+        arrowBtn: {
+            position: 'absolute', top: '50%', transform: 'translateY(-50%)',
+            background: 'rgba(255, 255, 255, 0.2)', border: '2px solid rgba(255,255,255,0.5)',
+            color: 'white', width: '50px', height: '50px', borderRadius: '50%',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '24px', zIndex: 10001, transition: 'background 0.3s'
+        },
 
-  const maxZonaTotal = Math.max(
-    1,
-    conteoMostrado.zonas.NORTE.total,
-    conteoMostrado.zonas.CENTRO.total,
-    conteoMostrado.zonas.SUR.total
-  );
+        detailGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', background: '#f9fafb', padding: '15px', borderRadius: '8px' },
+        label: { fontSize: '12px', fontWeight: 'bold', color: '#4b5563', marginRight: '5px', textTransform: 'uppercase' },
+        value: { fontSize: '12px', color: '#111827', fontWeight: 700 },
+        sidebar: { width: '280px', borderRight: '1px solid #e5e7eb', overflowY: 'auto', background: '#ffffff', flexShrink: 0 },
+        parteItem: { padding: '15px', borderBottom: '1px solid #f3f4f6', cursor: 'pointer', fontSize: '13px', transition: 'background 0.2s' },
+        tabBtn: { padding: '8px 16px', marginRight: '10px', border: '1px solid #d1d5db', cursor: 'pointer', borderRadius: '4px', fontSize: '13px', fontWeight: 500 },
+        
+        // PADDING EXTRA PARA QUE NO SE CORTE EL CONTENIDO ABAJO
+        detailScrollContainer: { flex: 1, padding: '25px', paddingBottom: '80px', overflowY: 'auto', height: '100%' }
+    };
 
-  // RENDER: Métricas Ejecutivas
-  const renderMetricasExecutive = () => {
     return (
-      <div style={{ maxWidth: "1000px", margin: "0 auto", paddingBottom: "40px" }}>
-        {/* KPI CARDS */}
-        <div style={S.execGrid}>
-          <div style={{ ...S.kpiCard, borderLeftColor: "#3b82f6" }}>
-            <div style={S.kpiLabel}>Total Incidentes</div>
-            <div style={S.kpiValue}>
-               {loadingConteo ? "..." : conteoMostrado.totalGeneral}
+        <div style={styles.container}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+                <h1 style={{ margin: 0, color: '#1e293b', fontSize: '26px' }}>
+                    Panel de Administración – <span style={{ color: '#3b82f6' }}>{userName || "CCENTER"}</span>
+                </h1>
+                {internoNombre && (
+                    <div style={{ fontSize: '13px', textAlign: 'right', color: '#64748b' }}>
+                        <div><strong>Operador:</strong> {internoNombre}</div>
+                        <div><strong>Ropero:</strong> {internoRoperoTurno}</div>
+                    </div>
+                )}
             </div>
-            <div style={S.kpiSub}>Registrados hoy</div>
-          </div>
-          <div style={{ ...S.kpiCard, borderLeftColor: "#ef4444" }}>
-            <div style={S.kpiLabel}>Zona con más carga</div>
-            <div style={{ ...S.kpiValue, color: "#ef4444" }}>{zonaPrioritaria}</div>
-            <div style={S.kpiSub}>Atención Prioritaria</div>
-          </div>
-          <div style={{ ...S.kpiCard, borderLeftColor: "#10b981" }}>
-            <div style={S.kpiLabel}>Ultima Sincronización</div>
-            <div style={{ ...S.kpiValue, color: "#10b981", fontSize: "24px" }}>
-               {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </div>
-            <div style={S.kpiSub}>Sistema en Línea</div>
-          </div>
-        </div>
 
-        {/* CHART: Barras */}
-        <div style={S.chartContainer}>
-          <div style={S.chartHeader}>
-            <div style={S.chartTitle}>Comparativa por Zona</div>
-            <button type="button" style={{...S.smallBtn, opacity: loadingConteo ? 0.6 : 1}} onClick={() => void fetchConteo(false)}>
-              {loadingConteo ? "Actualizando..." : "Actualizar"}
-            </button>
-          </div>
-          <div style={S.barChartFrame}>
-            <div style={S.barColumn}>
-              <div style={S.barValueFloat}>{conteoMostrado.zonas.NORTE.total}</div>
-              <div style={S.barFill((conteoMostrado.zonas.NORTE.total / maxZonaTotal) * 100 || 2, "#3b82f6")} />
-              <div style={S.barLabel}>NORTE</div>
+            <div style={styles.card}>
+                <h2 style={{ fontSize: '18px', marginBottom: '20px', fontWeight: 'bold' }}>PANEL DE CONTROL</h2>
+                <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={styles.input} />
+                    <select value={turno} onChange={e => setTurno(e.target.value)} style={styles.input}>
+                        <option value="MAÑANA">MAÑANA</option>
+                        <option value="TARDE">TARDE</option>
+                        <option value="NOCHE">NOCHE</option>
+                    </select>
+                    <button style={{ ...styles.btnNav, background: '#0f172a', color: 'white' }}>ZONAS</button>
+                    <button onClick={() => navigate('/estadistica')} style={styles.btnNav}>MÉTRICAS (BI)</button>
+                    <button onClick={openUsers} style={styles.btnNav}>USUARIOS</button>
+                    <DownloadWordButton fecha={fecha} turno={turno} />
+                    <button onClick={onLogout} style={{ ...styles.btnNav, background: '#ef4444', color: 'white' }}>Salir</button>
+                </div>
             </div>
-            <div style={S.barColumn}>
-              <div style={S.barValueFloat}>{conteoMostrado.zonas.CENTRO.total}</div>
-              <div style={S.barFill((conteoMostrado.zonas.CENTRO.total / maxZonaTotal) * 100 || 2, "#8b5cf6")} />
-              <div style={S.barLabel}>CENTRO</div>
-            </div>
-            <div style={S.barColumn}>
-              <div style={S.barValueFloat}>{conteoMostrado.zonas.SUR.total}</div>
-              <div style={S.barFill((conteoMostrado.zonas.SUR.total / maxZonaTotal) * 100 || 2, "#f59e0b")} />
-              <div style={S.barLabel}>SUR</div>
-            </div>
-          </div>
-        </div>
 
-        {/* TABLE: Ranking */}
-        <div style={S.chartContainer}>
-          <div style={S.chartHeader}>
-            <div style={S.chartTitle}>Top 5 Incidencias</div>
-            <select
-              value={zonaMetricas}
-              onChange={(e) => setZonaMetricas(e.target.value as ZonaUI)}
-              style={S.select}
-            >
-              <option value="TODAS">Todas las Zonas</option>
-              <option value="NORTE">Solo Norte</option>
-              <option value="CENTRO">Solo Centro</option>
-              <option value="SUR">Solo Sur</option>
-            </select>
-          </div>
-          <table style={S.execTable}>
-            <thead>
-              <tr>
-                <th style={S.execTh}>#</th>
-                <th style={S.execTh}>Incidencia</th>
-                <th style={S.execTh}>Cant.</th>
-                <th style={S.execTh}>% Impacto</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rankingTop5.length === 0 ? (
-                <tr>
-                  <td colSpan={4} style={{ padding: "20px", textAlign: "center", color: "#94a3b8" }}>
-                    Sin datos disponibles.
-                  </td>
-                </tr>
-              ) : (
-                rankingTop5.map((item, idx) => {
-                  const maxVal = rankingTop5[0]?.total || 1;
-                  const pct = (item.total / maxVal) * 100;
-                  return (
-                    <tr key={idx}>
-                      <td style={S.execTd}>{idx + 1}</td>
-                      <td style={S.execTd}>{item.incidencia}</td>
-                      <td style={S.execTd}>
-                         <span style={S.badge(idx)}>{item.total}</span>
-                      </td>
-                      <td style={S.execTd}>
-                        <div style={S.progressBarBg}>
-                          <div style={S.progressBarFill(pct, idx === 0)} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '25px', marginBottom: '30px' }}>
+                {['NORTE', 'CENTRO', 'SUR'].map((zona) => {
+                    const key = zona.charAt(0) + zona.slice(1).toLowerCase();
+                    return (
+                        <div key={zona} style={{ background: 'white', padding: '20px', borderRadius: '12px', borderTop: '6px solid #3b82f6', minHeight: '350px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', marginBottom: '15px', borderBottom: '1px solid #eee', paddingBottom: '15px' }}>
+                                <span>{zona}</span>
+                                <span>Total: {counts[key]}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px', color: '#94a3b8', flexDirection: 'column' }}>
+                                <div style={{ fontSize: '30px' }}>∅</div>
+                                <div>Sin incidencias</div>
+                            </div>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                    );
+                })}
+            </div>
+
+            <div style={{ background: '#0f172a', color: 'white', padding: '25px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '18px', fontWeight: 'bold' }}>TOTAL INCIDENCIAS HOY</span>
+                <span style={{ fontSize: '42px', fontWeight: 'bold' }}>{counts.Norte + counts.Centro + counts.Sur}</span>
+            </div>
+
+            {/* MODAL PRINCIPAL */}
+            {showModal && (
+                <div style={styles.overlay}>
+                    <div style={styles.modal}>
+                        <div style={{ padding: '20px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                                <h2 style={{ margin: '0 0 5px 0', fontSize: '24px', fontWeight: 800, textTransform: 'uppercase' }}>
+                                    {userSel ? userSel.usuario : "Lista de Usuarios"}
+                                </h2>
+                                {userSel && <span style={{ fontSize: '13px', color: '#6b7280', fontWeight: 600 }}>ID: {userSel.id} | {userSel.rol}</span>}
+                            </div>
+                            <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', fontSize: '28px', cursor: 'pointer', color: '#9ca3af' }}>×</button>
+                        </div>
+
+                        {view === 'list' ? (
+                            <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
+                                {usuarios.map(u => (
+                                    <div key={u.id} onClick={() => selectUser(u)} style={{ padding: '15px', borderBottom: '1px solid #eee', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}>
+                                        <strong>{u.usuario}</strong>
+                                        <span style={{ color: '#3b82f6', fontSize: '12px', fontWeight: 600 }}>Ver Perfil →</span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                                <div style={{ padding: '10px 20px', borderBottom: '1px solid #e5e7eb', background: '#fff' }}>
+                                    <button onClick={() => setActiveTab('cv')} style={{ ...styles.tabBtn, background: activeTab === 'cv' ? '#e5e7eb' : '#fff' }}>Información (CV)</button>
+                                    <button onClick={() => setActiveTab('partes')} style={{ ...styles.tabBtn, background: activeTab === 'partes' ? '#e5e7eb' : '#fff' }}>Partes ({userPartes.length})</button>
+                                    <button onClick={() => setView('list')} style={{ float: 'right', border: '1px solid #ddd', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', background: 'white' }}>« Atrás</button>
+                                </div>
+
+                                <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+                                    {activeTab === 'cv' ? (
+                                        <div style={{ padding: '40px', display: 'flex', gap: '40px', width: '100%', overflowY: 'auto' }}>
+                                            <div style={{ flex: 1 }}>
+                                                <p><strong>DNI:</strong> {getDato(userSel, ['dni'])}</p>
+                                                <p><strong>Celular:</strong> {getDato(userSel, ['celular', 'telefono'])}</p>
+                                                <p><strong>Correo:</strong> {getDato(userSel, ['correo', 'email'])}</p>
+                                            </div>
+                                            <div style={{ width: '150px', height: '150px', borderRadius: '50%', background: '#f3f4f6', overflow: 'hidden', border: '4px solid white', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                                                {fotoPerfilUrl ? <img src={fotoPerfilUrl} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ccc', fontSize: '40px' }}>👤</div>}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', width: '100%', overflow: 'hidden' }}>
+                                            <div style={styles.sidebar}>
+                                                {userPartes.map(p => (
+                                                    <div key={p.id} onClick={() => handleSelectParte(p.id)} style={{ ...styles.parteItem, background: parteSel?.id === p.id ? '#eff6ff' : 'transparent', borderLeft: parteSel?.id === p.id ? '4px solid #3b82f6' : '4px solid transparent' }}>
+                                                        <div style={{ fontWeight: 700, marginBottom: '4px' }}>Parte #{p.id}</div>
+                                                        <div style={{ color: '#6b7280', fontSize: '12px' }}>{p.fecha?.split('T')[0]}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <div style={styles.detailScrollContainer}>
+                                                {parteSel ? (
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                                        <h3 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', marginTop: 0 }}>INFORME DE PARTE #{parteSel.id}</h3>
+                                                        
+                                                        <div style={styles.detailGrid}>
+                                                            <div>
+                                                                <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 'bold' }}>Ubicación y Sectorización</h4>
+                                                                <p style={{ margin: '5px 0' }}><span style={styles.label}>Lugar:</span> <span style={styles.value}>{getDato(parteSel, ['lugar', 'direccion', 'ubicacion'])}</span></p>
+                                                                <p style={{ margin: '5px 0' }}><span style={styles.label}>Sector:</span> <span style={styles.value}>{getDato(parteSel, ['sector', 'cuadrante'])}</span></p>
+                                                                <p style={{ margin: '5px 0' }}><span style={styles.label}>Zona:</span> <span style={styles.value}>{getDato(parteSel, ['zona'])}</span></p>
+                                                                <p style={{ margin: '5px 0' }}><span style={styles.label}>Turno:</span> <span style={styles.value}>{getDato(parteSel, ['turno'])}</span></p>
+                                                            </div>
+                                                            <div>
+                                                                <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 'bold' }}>Recursos y Supervisión</h4>
+                                                                <p style={{ margin: '5px 0' }}><span style={styles.label}>Unidad:</span> <span style={styles.value}>{getDato(parteSel, ['unidad', 'movil', 'recurso'])}</span></p>
+                                                                <p style={{ margin: '5px 0' }}><span style={styles.label}>Placa:</span> <span style={styles.value}>{getDato(parteSel, ['placa', 'matricula'])}</span></p>
+                                                                <p style={{ margin: '5px 0' }}><span style={styles.label}>Conductor:</span> <span style={styles.value}>{getDato(parteSel, ['conductor', 'chofer'])}</span></p>
+                                                                <p style={{ margin: '5px 0' }}><span style={styles.label}>Sup. Zonal:</span> <span style={styles.value}>{getDato(parteSel, ['sup_zonal', 'supervisor_zonal'])}</span></p>
+                                                                <p style={{ margin: '5px 0' }}><span style={styles.label}>Sup. General:</span> <span style={styles.value}>{getDato(parteSel, ['sup_general', 'supervisor_general'])}</span></p>
+                                                            </div>
+                                                        </div>
+
+                                                        <div>
+                                                            <h4 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 5px 0' }}>Asunto / Sumilla</h4>
+                                                            <div style={{ padding: '10px', background: '#f1f5f9', fontSize: '13px', borderRadius: '4px' }}>
+                                                                {getDato(parteSel, ['sumilla', 'asunto', 'titulo'])}
+                                                            </div>
+                                                        </div>
+
+                                                        <div>
+                                                            <h4 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 5px 0' }}>Detalle de la Ocurrencia (Escrito)</h4>
+                                                            <div style={{ padding: '15px', border: '1px solid #e2e8f0', borderRadius: '6px', minHeight: '100px', whiteSpace: 'pre-wrap', fontSize: '13px', background: '#fff' }}>
+                                                                {getDato(parteSel, ['ocurrencia', 'descripcion', 'detalle_ocurrencia', 'detalle'])}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* MULTIMEDIA */}
+                                                        <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '15px', marginTop: '10px' }}>
+                                                            <h4 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 10px 0' }}>
+                                                                Multimedia ({parteSel.todosArchivos?.length || 0} archivos)
+                                                            </h4>
+                                                            
+                                                            {parteSel.todosArchivos?.length > 0 ? (
+                                                                <>
+                                                                    {/* 🟢 BOTÓN INTERACTIVO (ÚNICA FORMA DE ABRIR) */}
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setMediaSeleccionado(parteSel.todosArchivos[0]);
+                                                                            setShowMediaModal(true);
+                                                                        }}
+                                                                        style={{ background: '#3b82f6', color: 'white', border: 'none', width: '100%', padding: '12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginBottom: '15px' }}
+                                                                    >
+                                                                        📂 Ver Galería Completa
+                                                                    </button>
+
+                                                                    {/* 🔴 VISTA PREVIA (NO INTERACTIVA, SOLO VISUAL) */}
+                                                                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                                                        {parteSel.todosArchivos.map((m: any, i: number) => (
+                                                                            <div key={i} style={{ width: '100px', height: '100px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #ddd', position: 'relative', cursor: 'default' /* Cursor normal */ }}>
+                                                                                {m.tipo === "video" ? (
+                                                                                    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                                                                                        <video src={m.ruta} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted preload="metadata" />
+                                                                                        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                                            <span style={{ fontSize: '24px', color: 'white' }}>▶️</span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <img src={m.ruta} alt="Foto" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                                                )}
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </>
+                                                            ) : (
+                                                                <div style={{ padding: '15px', background: '#f1f5f9', borderRadius: '6px', textAlign: 'center', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>🚫 <span>Sin archivos adjuntos</span></div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>Selecciona un parte lateral.</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL MULTIMEDIA (INTERACTIVO CON FLECHAS) */}
+            {showMediaModal && mediaSeleccionado && (
+                <div style={styles.mediaOverlay}>
+                    {/* Botón Cerrar */}
+                    <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 10002 }}>
+                        <button onClick={() => setShowMediaModal(false)} style={{ padding: '8px 16px', background: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontWeight: 'bold' }}>✕ Cerrar</button>
+                    </div>
+
+                    {/* FLECHA IZQUIERDA */}
+                    {parteSel?.todosArchivos?.length > 1 && (
+                        <button onClick={(e) => { e.stopPropagation(); navegarGaleria('prev'); }} style={{ ...styles.arrowBtn, left: '20px' }}>❮</button>
+                    )}
+
+                    {/* CONTENIDO */}
+                    <div style={styles.mediaContent}>
+                        {mediaSeleccionado.tipo === "video" ? (
+                            <video controls autoPlay style={{ maxWidth: '90vw', maxHeight: '80vh', borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
+                                <source src={mediaSeleccionado.ruta} type="video/mp4" />
+                            </video>
+                        ) : (
+                            <img src={mediaSeleccionado.ruta} alt="Full" style={{ maxWidth: '90vw', maxHeight: '80vh', borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }} />
+                        )}
+                        <div style={{ marginTop: '15px', color: 'white', background: 'rgba(0,0,0,0.5)', padding: '5px 12px', borderRadius: '20px', fontSize: '14px' }}>
+                            {parteSel.todosArchivos.findIndex((m: any) => m.ruta === mediaSeleccionado.ruta) + 1} / {parteSel.todosArchivos.length}
+                        </div>
+                    </div>
+
+                    {/* FLECHA DERECHA */}
+                    {parteSel?.todosArchivos?.length > 1 && (
+                        <button onClick={(e) => { e.stopPropagation(); navegarGaleria('next'); }} style={{ ...styles.arrowBtn, right: '20px' }}>❯</button>
+                    )}
+                </div>
+            )}
         </div>
-      </div>
     );
-  };
+};
 
-  const renderZonaSimple = (z: ZonaKey) => {
-    const zona = conteoMostrado.zonas[z];
-    return (
-      <div style={S.zoneCard}>
-        <div style={S.zoneTitle}>
-          <span>{z}</span>
-          <span>Total: {zona.total}</span>
-        </div>
-        {zona.incidencias.length === 0 ? (
-          <div style={{ color: "#64748b", fontSize: "13px" }}>Sin incidencias.</div>
-        ) : (
-          <div>
-            {zona.incidencias.slice(0, 10).map((it, idx) => (
-              <div key={idx} style={S.listItem}>
-                <span style={{ fontWeight: 700 }}>{it.incidencia}</span>
-                <span style={{ fontWeight: 900 }}>{it.total}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // USUARIOS
-  const allUsers = useMemo(() => {
-    const qx = q.trim().toLowerCase();
-    const app = usersApp.map((u) => ({ tipo: "APP" as const, u }));
-    const adm = usersAdmin.map((u) => ({ tipo: "ADMIN" as const, u }));
-    let merged = [...app, ...adm];
-    if (tipoUsers !== "TODOS") merged = merged.filter((x) => x.tipo === tipoUsers);
-    if (qx) {
-      merged = merged.filter(({ u }) => {
-        const txt = [u.nombres, u.nombre, u.usuario, u.dni].join(" ").toLowerCase();
-        return txt.includes(qx);
-      });
-    }
-    merged.sort((a, b) => a.u.id - b.u.id);
-    return merged;
-  }, [usersApp, usersAdmin, tipoUsers, q]);
-
-  const handleOpenUser = (u: UsuarioSistema, tipo: "APP" | "ADMIN") => {
-    setUsuarioModal(toUsuarioModal(u, tipo));
-    setOpenModal(true);
-  };
-
-  return (
-    <div style={S.layoutWrap}>
-      <div style={S.topRow}>
-        <div style={S.panelCallCenter}>
-          <div style={{ fontWeight: 900, fontSize: "20px", textAlign: "center", marginBottom: "10px" }}>
-            PANEL DE CONTROL
-          </div>
-          <div style={S.bigTabs}>
-            <button type="button" style={S.tabBtn(view === "RESUMEN")} onClick={() => setView("RESUMEN")}>
-              ZONAS
-            </button>
-            <button type="button" style={S.tabBtn(view === "METRICAS")} onClick={() => setView("METRICAS")}>
-              MÉTRICAS (BI)
-            </button>
-            <button type="button" style={S.tabBtn(view === "USUARIOS")} onClick={() => setView("USUARIOS")}>
-              USUARIOS
-            </button>
-          </div>
-          <div style={S.btnRow}>
-            <button type="button" style={S.smallBtn} onClick={onBack}>
-              Volver
-            </button>
-            <button type="button" style={S.darkBtn} onClick={onLogout}>
-              Salir
-            </button>
-            {/* BOTÓN F5 REAL */}
-            <button type="button" style={S.smallBtn} onClick={() => window.location.reload()}>
-              ⟳ F5
-            </button>
-          </div>
-          <div style={{ marginTop: "10px", fontSize: "12px", color: "#64748b", display: "flex", justifyContent: "space-between" }}>
-            <span>Usuario: <strong>{userName}</strong></span>
-          </div>
-        </div>
-
-        <div style={S.internalCard}>
-          <div style={{ fontSize: "12px", color: "#475569" }}>Datos Internos</div>
-          <div style={{ marginTop: "5px", fontSize: "13px" }}>
-            <strong>{internoNombre || "-"}</strong> <br />
-            <span style={{ fontSize: "11px", color: "#64748b" }}>{internoRoperoTurno}</span>
-          </div>
-          {onOpenInternalLogin && (
-            <button
-              type="button"
-              style={{ ...S.smallBtn, width: "100%", background: "#fff", marginTop: "8px" }}
-              onClick={onOpenInternalLogin}
-            >
-              Cambiar
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div style={S.midArea}>
-        {view === "METRICAS" ? (
-          renderMetricasExecutive()
-        ) : view === "USUARIOS" ? (
-          <div style={S.conteoWrap}>
-            <div style={S.usersPanel}>
-               <div style={{ display: 'flex', gap: '10px', padding: '15px', borderBottom: '1px solid #f1f5f9' }}>
-                 <input placeholder="Buscar usuario..." value={q} onChange={e => setQ(e.target.value)} style={S.input} />
-                 
-                 {/* Indicador visual de carga y error en usuarios */}
-                 <button type="button" style={{...S.smallBtn, opacity: loadingUsers ? 0.6 : 1}} onClick={() => void fetchUsers()}>
-                    {loadingUsers ? "Cargando..." : "Refrescar"}
-                 </button>
-
-                 <div style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
-                    {(["TODOS", "APP", "ADMIN"] as const).map(f => (
-                       <button 
-                         key={f}
-                         type="button"
-                         style={{
-                           ...S.smallBtn, 
-                           background: tipoUsers === f ? "#0f172a" : "#fff",
-                           color: tipoUsers === f ? "#fff" : "#475569"
-                         }}
-                         onClick={() => setTipoUsers(f)}
-                       >
-                         {f}
-                       </button>
-                    ))}
-                 </div>
-               </div>
-               
-               {/* Mensaje de error de usuarios si existe */}
-               {errorUsers && <div style={{padding:"10px", color:"red", fontSize:"12px"}}>{errorUsers}</div>}
-
-               <div style={S.tableWrap}>
-                 <table style={S.table}>
-                   <thead>
-                     <tr>
-                       <th style={{...S.execTh, padding: '12px'}}>ID</th>
-                       <th style={{...S.execTh, padding: '12px'}}>Usuario</th>
-                       <th style={{...S.execTh, padding: '12px'}}>Nombre</th>
-                       <th style={{...S.execTh, padding: '12px'}}>Rol</th>
-                       <th style={{...S.execTh, padding: '12px'}}>DNI</th>
-                     </tr>
-                   </thead>
-                   <tbody>
-                     {allUsers.map(({u, tipo}) => (
-                       <tr key={`${tipo}-${u.id}`} onClick={() => handleOpenUser(u, tipo)} style={{cursor:'pointer', borderBottom:'1px solid #f8fafc'}}>
-                         <td style={{padding:'12px', fontSize:'13px'}}>{u.id}</td>
-                         <td style={{padding:'12px', fontSize:'13px', fontWeight:600}}>{u.usuario || u.nombre_usuario}</td>
-                         <td style={{padding:'12px', fontSize:'13px'}}>{u.nombres || u.nombre}</td>
-                         <td style={{padding:'12px', fontSize:'13px'}}>
-                           <span style={{
-                             padding:'2px 8px', borderRadius:'4px', fontSize:'11px', fontWeight:700,
-                             background: tipo === 'ADMIN' ? '#fef3c7' : '#e0f2fe',
-                             color: tipo === 'ADMIN' ? '#d97706' : '#0369a1'
-                           }}>
-                             {tipo}
-                           </span>
-                         </td>
-                         <td style={{padding:'12px', fontSize:'13px'}}>{u.dni || "-"}</td>
-                       </tr>
-                     ))}
-                   </tbody>
-                 </table>
-               </div>
-            </div>
-          </div>
-        ) : (
-          <div style={S.conteoWrap}>
-            {errorConteo && <div style={S.errorBox}>{errorConteo}</div>}
-            <div style={S.zonesRow}>
-              {renderZonaSimple("NORTE")}
-              {renderZonaSimple("CENTRO")}
-              {renderZonaSimple("SUR")}
-            </div>
-            <div style={S.totalBar}>
-              <div>TOTAL INCIDENCIAS HOY</div>
-              <div style={{ fontSize: "24px", fontWeight: 900 }}>{conteoMostrado.totalGeneral}</div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <UserDetailsModal open={openModal} onClose={() => setOpenModal(false)} usuario={usuarioModal} />
-    </div>
-  );
-}
+export default CallCenterDashboard;

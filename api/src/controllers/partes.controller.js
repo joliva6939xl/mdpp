@@ -331,26 +331,22 @@ const obtenerParte = async (req, res) => {
 
     const archivos = archivosResult.rows || [];
 
-    let fotos = archivos
-      .filter((a) => {
-        const t = (a.tipo || "").toLowerCase();
-        return t.startsWith("foto") || t.startsWith("image") || t === "img";
-      })
-      .map((a) => a.ruta);
+    const esImagen = (ruta = "") =>
+  ruta.match(/\.(jpg|jpeg|png|gif|webp)$/i);
 
-    let videos = archivos
-      .filter((a) => {
-        const t = (a.tipo || "").toLowerCase();
-        return t.startsWith("video") || t.includes("mp4") || t.includes("avi");
-      })
-      .map((a) => a.ruta);
+const esVideo = (ruta = "") =>
+  ruta.match(/\.(mp4|avi|mov|mkv|webm)$/i);
 
-    if (archivos.length > 0 && fotos.length === 0 && videos.length === 0) {
-      console.warn(
-        `⚠️ Archivos sin tipo reconocido para parte ${parteId}, se envían todos como fotos`
-      );
-      fotos = archivos.map((a) => a.ruta);
-    }
+const fotos = archivos
+  .filter(a => esImagen(a.ruta))
+  .map(a => a.ruta);
+
+const videos = archivos
+  .filter(a => esVideo(a.ruta))
+  .map(a => a.ruta);
+
+parte.fotos = fotos;
+parte.videos = videos;
 
     parte.fotos = fotos;
     parte.videos = videos;

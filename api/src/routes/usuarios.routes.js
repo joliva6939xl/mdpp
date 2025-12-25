@@ -1,26 +1,26 @@
-// api/src/routes/usuarios.routes.js
+const { Router } = require("express");
+const router = Router();
+const multer = require("multer");
+const path = require("path");
 
-const express = require("express");
-const router = express.Router();
+// Tu configuración original de Multer para las fotos
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, "src/uploads/usuarios"),
+    filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
+});
+const upload = multer({ storage });
 
-const {
-  obtenerUsuarioPorId,
-  actualizarFotoPerfil,
+const { 
+    getUsuarios, 
+    obtenerUsuarioPorId, 
+    actualizarFotoPerfil,
+    verPartesUsuario 
 } = require("../controllers/usuarios.controller");
 
-// Middleware de subida de foto (ya lo usas en auth.routes)
-const { userPhotoUpload } = require("../middlewares/upload.middleware");
-// Si quieres, luego puedes proteger con token:
-// const { verificarToken } = require("../middlewares/auth.middleware");
-
-// Obtener un usuario por id
-router.get("/:id", obtenerUsuarioPorId);
-
-// Actualizar foto de perfil (campo "foto")
-router.put(
-  "/:id/foto",
-  userPhotoUpload.single("foto"),
-  actualizarFotoPerfil
-);
+// 🟢 Rutas sumadas y originales trabajando juntas
+router.get("/", getUsuarios);                   // Lista
+router.get("/:id", obtenerUsuarioPorId);        // Detalle
+router.put("/:id/foto", upload.single("foto"), actualizarFotoPerfil); // ✅ Tu ruta de fotos
+router.get("/:id/partes", verPartesUsuario);    // Partes del usuario
 
 module.exports = router;
