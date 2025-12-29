@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location"; // ✅ IMPORT AGREGADO: Para usar el GPS
 import { obtenerSesion } from "../../utils/session";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -132,6 +133,10 @@ export default function CrearParteScreen() {
   const [archivos, setArchivos] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [participantes, setParticipantes] = useState<Participante[]>([]);
 
+  // ✅ NUEVO: Estado para la ubicación GPS
+  const [ubicacion, setUbicacion] = useState<{ lat: string; lng: string } | null>(null);
+  const [loadingGPS, setLoadingGPS] = useState(false);
+
   const [form, setForm] = useState({
     parte_fisico: "",
     fecha: new Date().toISOString().split("T")[0],
@@ -177,6 +182,49 @@ export default function CrearParteScreen() {
   const seleccionarOpcion = (val: string) => {
     if (selectorCampo) handleChange(selectorCampo, val);
     setSelectorVisible(false);
+  };
+
+  // ✅ NUEVO: Función para obtener coordenadas GPS
+  const obtenerUbicacion = async () => {
+    setLoadingGPS(true);
+    try {
+      // 1. Pedir permisos
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        showAlert({
+          title: "Permiso denegado",
+          message: "Se requiere acceso a la ubicación para geolocalizar el parte.",
+          type: "error",
+        });
+        setLoadingGPS(false);
+        return;
+      }
+
+      // 2. Obtener posición actual (precisión alta)
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      setUbicacion({
+        lat: String(location.coords.latitude),
+        lng: String(location.coords.longitude),
+      });
+
+      showAlert({
+        title: "Ubicación obtenida",
+        message: "Coordenadas GPS adjuntadas correctamente.",
+        type: "success",
+      });
+    } catch (error) {
+      console.log(error);
+      showAlert({
+        title: "Error GPS",
+        message: "No se pudo obtener la ubicación. Verifique su GPS.",
+        type: "error",
+      });
+    } finally {
+      setLoadingGPS(false);
+    }
   };
 
   const handleFilePick = async () => {
@@ -277,6 +325,12 @@ export default function CrearParteScreen() {
       formData.append("usuario_id", String(session.usuario.id));
       formData.append("participantes", JSON.stringify(participantes));
 
+      // ✅ NUEVO: Agregar Latitud y Longitud si existen
+      if (ubicacion) {
+        formData.append("latitud", ubicacion.lat);
+        formData.append("longitud", ubicacion.lng);
+      }
+
       for (let index = 0; index < archivos.length; index++) {
         const file = archivos[index];
         const isVideo = file.type === "video";
@@ -319,6 +373,7 @@ export default function CrearParteScreen() {
           type: "success",
         });
 
+        // Resetear formulario
         setForm({
           parte_fisico: "",
           fecha: new Date().toISOString().split("T")[0],
@@ -341,6 +396,7 @@ export default function CrearParteScreen() {
         });
         setArchivos([]);
         setParticipantes([]);
+        setUbicacion(null); // ✅ Resetear ubicación
 
         router.push("/(tabs)/historial");
       } else {
@@ -659,6 +715,37 @@ export default function CrearParteScreen() {
                 </View>
               </View>
             ))}
+          </Section>
+
+          {/* ✅ NUEVA SECCIÓN: UBICACIÓN GPS */}
+          <Section title="Ubicación (GPS)" subtitle="Adjunte la ubicación actual del incidente.">
+            <TouchableOpacity
+              style={[
+                styles.softButton,
+                ubicacion ? { backgroundColor: "#ecfccb", borderColor: "#84cc16" } : null
+              ]}
+              onPress={obtenerUbicacion}
+              disabled={loadingGPS}
+              activeOpacity={0.9}
+            >
+              <View style={[styles.softButtonIcon, ubicacion ? { backgroundColor: "#65a30d" } : null]}>
+                {loadingGPS ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <IconSymbol name={ubicacion ? "checkmark.circle.fill" : "location.fill"} size={18} color="#fff" />
+                )}
+              </View>
+              <View>
+                <Text style={styles.softButtonText}>
+                  {ubicacion ? "Ubicación Adjuntada" : "Obtener Ubicación GPS"}
+                </Text>
+                {ubicacion && (
+                  <Text style={{ fontSize: 10, color: "#4d7c0f", fontWeight: "700" }}>
+                    Lat: {ubicacion.lat.slice(0, 7)}... Lon: {ubicacion.lng.slice(0, 7)}...
+                  </Text>
+                )}
+              </View>
+            </TouchableOpacity>
           </Section>
 
           <Section title="Evidencias" subtitle="Adjunte fotos o videos relacionados al parte.">

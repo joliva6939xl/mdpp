@@ -1,470 +1,360 @@
-import React, { useEffect, useState } from 'react';
+// Archivo: Movil/app/parte/[id].tsx
+import React, { useEffect, useState } from "react";
 import {
-  View,
-  ScrollView,
-  ActivityIndicator,
   StyleSheet,
+  ScrollView,
   Text,
-  TouchableOpacity,
   Platform,
-  TextInput,
-} from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ThemedView } from '@/components/themed-view';
-import { ThemedText } from '@/components/themed-text';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { obtenerSesion } from '../../utils/session';
+  ActivityIndicator,
+  View,
+  Image,
+  Linking,
+  TouchableOpacity,
+  type ViewStyle,
+  type TextStyle,
+  type ImageStyle,
+} from "react-native";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { ThemedView } from "@/components/themed-view";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { obtenerSesion } from "../../utils/session";
+import { useAlert } from "../../context/GlobalAlert";
 
 const API_URL =
-  Platform.OS === 'web'
-    ? 'http://localhost:4000/api'
-    : 'http://10.0.2.2:4000/api';
+  Platform.OS === "web"
+    ? "http://localhost:4000/api"
+    : "http://10.0.2.2:4000/api";
 
-type Participante = {
-  nombre?: string;
-  dni?: string;
+const BASE_URL =
+  Platform.OS === "web"
+    ? "http://localhost:4000"
+    : "http://10.0.2.2:4000";
+
+// --- Componentes Reutilizables de Estilo ---
+type SectionProps = {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
 };
+const Section: React.FC<SectionProps> = ({ title, subtitle, children }) => (
+  <View style={styles.card}>
+    <View style={styles.cardHeader}>
+      <Text style={styles.cardTitle}>{title}</Text>
+      {!!subtitle && <Text style={styles.cardSubtitle}>{subtitle}</Text>}
+    </View>
+    {children}
+  </View>
+);
 
-const normalizarParticipantes = (raw: any): Participante[] => {
-  try {
-    if (!raw) return [];
-    if (Array.isArray(raw)) return raw as Participante[];
-    if (typeof raw === 'string') {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as Participante[]) : [];
-    }
-    if (typeof raw === 'object') {
-      return Array.isArray(raw) ? (raw as Participante[]) : [];
-    }
-    return [];
-  } catch {
-    return [];
-  }
-};
+type InfoRowProps = { label: string; value?: string | null };
+const InfoRow: React.FC<InfoRowProps> = ({ label, value }) => (
+  <View style={styles.infoRow}>
+    <Text style={styles.infoLabel}>{label}:</Text>
+    <Text style={styles.infoValue}>{value || "---"}</Text>
+  </View>
+);
 
-export default function ParteDetalleScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+export default function DetalleParteScreen() {
+  const { id } = useLocalSearchParams();
   const router = useRouter();
+  const { showAlert } = useAlert();
 
-  const [parte, setParte] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const [cerrando, setCerrando] = useState(false);
-  const [horaFinLocal, setHoraFinLocal] = useState(''); // aquí guardamos la hora fin que el usuario quiere
-
-  // Cargar parte desde el backend
-  const cargarParte = async () => {
-    if (!id) return;
-    setLoading(true);
-    try {
-      const session = await obtenerSesion();
-
-      const resp = await fetch(`${API_URL}/partes/${id}`, {
-        headers: {
-          Authorization: session?.token ? `Bearer ${session.token}` : '',
-        },
-      });
-
-      const data = await resp.json();
-      if (!resp.ok) {
-        console.log('❌ Error cargando parte:', data);
-        return;
-      }
-
-      const base = data.parte || data.data || data;
-      const participantesNorm = normalizarParticipantes(base.participantes);
-      const p = { ...base, participantes: participantesNorm };
-      console.log('📄 Parte cargada:', p);
-      setParte(p);
-      setHoraFinLocal(p.hora_fin || ''); // si ya está cerrado, mostramos su hora; si no, vacío
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [parte, setParte] = useState<any>(null);
 
   useEffect(() => {
-    cargarParte();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+    const cargarDetalle = async () => {
+      try {
+        const session = await obtenerSesion();
+        if (!session) return;
 
-  const cerrado =
-    parte?.hora_fin && String(parte.hora_fin).trim().length > 0 ? true : false;
+        const response = await fetch(`${API_URL}/partes/${id}`, {
+          headers: { Authorization: `Bearer ${session.token}` },
+        });
+        const data = await response.json();
 
-  // Botón del reloj -> coloca la hora actual en horaFinLocal
-  const ponerHoraActual = () => {
-    const now = new Date();
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
-    const hora = `${hh}:${mm}`;
-    console.log('⏰ Hora actual usada para cierre:', hora);
-    setHoraFinLocal(hora);
-  };
-
-  // Cerrar parte usando la horaFinLocal
-  const ejecutarCerrarParte = async () => {
-    if (!parte) return;
-    if (!horaFinLocal.trim()) {
-      console.log('⚠️ No hay hora_fin para cerrar');
-      return;
-    }
-
-    setCerrando(true);
-
-    try {
-      const session = await obtenerSesion();
-
-      console.log('🔒 Enviando cierre de parte', parte.id, 'hora_fin=', horaFinLocal);
-
-      const resp = await fetch(`${API_URL}/partes/cerrar/${parte.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: session?.token ? `Bearer ${session.token}` : '',
-        },
-        body: JSON.stringify({ hora_fin: horaFinLocal }),
-      });
-
-      const data = await resp.json();
-      console.log('📥 Respuesta cierre parte:', data);
-
-      if (!resp.ok || !data.ok) {
-        console.log('❌ No se pudo cerrar el parte');
-        return;
+        if (response.ok) {
+          setParte(data.data);
+        } else {
+          showAlert({ title: "Error", message: "No se encontró el reporte.", type: "error" });
+        }
+      } catch (error) {
+        console.error(error);
+        showAlert({ title: "Error", message: "Error de conexión.", type: "error" });
+      } finally {
+        setLoading(false);
       }
+    };
 
-      const base = data.parte || data.data || data;
-      const participantesNorm = normalizarParticipantes(base.participantes);
-      const actualizado: any = { ...base, participantes: participantesNorm };
-      setParte(actualizado);
-      setHoraFinLocal(actualizado.hora_fin || '');
-    } catch (error) {
-      console.error('❌ Error fetch cerrar parte:', error);
-    } finally {
-      setCerrando(false);
+    if (id) {
+      cargarDetalle();
+    }
+  }, [id, showAlert]);
+
+  // ✅ FUNCIÓN CORREGIDA PARA WEB Y MÓVIL
+  const abrirMapa = () => {
+    if (!parte?.latitud || !parte?.longitud) return;
+    
+    const lat = parte.latitud;
+    const lng = parte.longitud;
+    const label = "Ubicación del Parte";
+
+    // 1. Definir la URL según la plataforma
+    const url = Platform.select({
+      // Web: Abre Google Maps en una nueva pestaña
+      web: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
+      // iOS: Abre Apple Maps
+      ios: `maps:0,0?q=${label}@${lat},${lng}`,
+      // Android: Abre la app predeterminada (Google Maps, Waze, etc.)
+      android: `geo:0,0?q=${lat},${lng}(${label})`,
+    });
+
+    // 2. Intentar abrir la URL
+    if (url) {
+        Linking.openURL(url).catch((err) => {
+           console.error("Error al abrir mapa:", err);
+           // Fallback: Si falla en el celular (ej. no tiene app de mapas), abre el navegador
+           if (Platform.OS !== 'web') {
+              Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`);
+           }
+        });
     }
   };
 
-  const irAMultimedia = () => {
-    if (!parte) return;
-    router.push(`/parte/multimedia/${parte.id}`);
-  };
-
-  if (loading || !parte) {
+  if (loading) {
     return (
-      <ThemedView style={styles.centered}>
-        <ActivityIndicator size="large" />
-        <ThemedText style={{ marginTop: 10 }}>Cargando parte...</ThemedText>
-      </ThemedView>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#0a7ea4" />
+        <Text style={styles.loadingText}>Cargando información...</Text>
+      </View>
+    );
+  }
+
+  if (!parte) {
+    return (
+      <View style={styles.loadingContainer}>
+        {/* ✅ CORRECCIÓN DEFINITIVA: Usamos &quot; en lugar de " */}
+        <Text style={styles.errorText}>No se encontró información para &quot;{id}&quot;.</Text>
+      </View>
     );
   }
 
   return (
     <ThemedView style={styles.container}>
+      <Stack.Screen options={{ title: `Parte ${parte.parte_fisico || ''}` }} />
+
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        
         {/* ENCABEZADO */}
         <View style={styles.header}>
-          <ThemedText type="title" style={styles.title}>
-            Parte Virtual #{parte.id}
-          </ThemedText>
-          <ThemedText style={styles.subTitle}>
-            N° Parte Físico:{' '}
-            <Text style={styles.bold}>{parte.parte_fisico}</Text>
-          </ThemedText>
+          <Text style={styles.headerTitle}>Detalle del Parte</Text>
+          <Text style={styles.headerSubtitle}>
+             {parte.fecha} • {parte.hora}
+          </Text>
+        </View>
 
-          <View
-            style={[
-              styles.estadoBadge,
-              cerrado ? styles.cerrado : styles.abierto,
-            ]}
-          >
-            <Text style={styles.estadoText}>
-              {cerrado ? 'CERRADO' : 'ABIERTO'}
-            </Text>
+        {/* DATOS PRINCIPALES */}
+        <Section title="Información General">
+          <InfoRow label="N° Físico" value={parte.parte_fisico} />
+          <InfoRow label="Sector" value={parte.sector} />
+          <InfoRow label="Zona" value={parte.zona} />
+          <InfoRow label="Turno" value={parte.turno} />
+          <InfoRow label="Lugar" value={parte.lugar} />
+        </Section>
+
+        {/* UNIDAD */}
+        <Section title="Unidad y Personal">
+          <InfoRow label="Unidad" value={`${parte.unidad_tipo} - ${parte.unidad_numero}`} />
+          <InfoRow label="Placa" value={parte.placa} />
+          <InfoRow label="Conductor" value={parte.conductor} />
+          <InfoRow label="DNI" value={parte.dni_conductor} />
+        </Section>
+
+        {/* INCIDENCIA */}
+        <Section title="Incidencia">
+          <InfoRow label="Tipo" value={parte.sumilla} />
+          <InfoRow label="Origen" value={parte.asunto} />
+          <View style={styles.textBox}>
+            <Text style={styles.textLabel}>Ocurrencia:</Text>
+            <Text style={styles.textContent}>{parte.ocurrencia}</Text>
           </View>
-        </View>
+          <InfoRow label="Sup. Zonal" value={parte.supervisor_zonal} />
+          <InfoRow label="Sup. General" value={parte.supervisor_general} />
+        </Section>
 
-        {/* FECHA / HORAS */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Fecha y Horas
-          </ThemedText>
-          <Row label="Fecha" value={parte.fecha} />
-          <Row label="Hora inicio" value={parte.hora || '-'} />
-          <Row
-            label="Hora fin"
-            value={parte.hora_fin || (cerrado ? '-' : 'En curso')}
-          />
-
-          {/* Si está ABIERTO, mostramos controles para definir hora_fin */}
-          {!cerrado && (
-            <View style={{ marginTop: 10 }}>
-              <ThemedText style={styles.label}>
-                Hora de cierre (HH:MM)
-              </ThemedText>
-              <View style={styles.horaRow}>
-                <TextInput
-                  style={styles.horaInput}
-                  placeholder="Ej: 14:30"
-                  value={horaFinLocal}
-                  onChangeText={setHoraFinLocal}
-                />
-                <TouchableOpacity
-                  style={styles.btnReloj}
-                  onPress={ponerHoraActual}
-                >
-                  <IconSymbol name="clock" size={18} color="#fff" />
-                  <Text style={styles.btnRelojText}>Usar hora actual</Text>
-                </TouchableOpacity>
+        {/* PARTICIPANTES */}
+        {parte.participantes && parte.participantes.length > 0 && (
+          <Section title="Participantes">
+            {parte.participantes.map((p: any, i: number) => (
+              <View key={i} style={styles.participantRow}>
+                <IconSymbol name="person.fill" size={16} color="#64748b" />
+                <Text style={styles.participantText}>
+                  {p.nombre} (DNI: {p.dni})
+                </Text>
               </View>
-              <Text style={styles.horaHint}>
-                Puedes escribir la hora manual o usar el botón del reloj.
-              </Text>
+            ))}
+          </Section>
+        )}
+
+        {/* ✅ SECCIÓN DE UBICACIÓN GPS */}
+        {parte.latitud && parte.longitud && (
+          <Section title="Ubicación GPS" subtitle="Coordenadas registradas del incidente.">
+            <View style={styles.gpsContainer}>
+               <View style={styles.gpsInfo}>
+                  <Text style={styles.gpsLabel}>Latitud:</Text>
+                  <Text style={styles.gpsValue}>{parte.latitud}</Text>
+               </View>
+               <View style={styles.gpsInfo}>
+                  <Text style={styles.gpsLabel}>Longitud:</Text>
+                  <Text style={styles.gpsValue}>{parte.longitud}</Text>
+               </View>
             </View>
-          )}
-        </View>
 
-        {/* UBICACIÓN / TURNO */}
-        <View className="section">
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Ubicación y Turno
-          </ThemedText>
-          <Row label="Sector" value={parte.sector} />
-          <Row label="Zona" value={parte.zona} />
-          <Row label="Turno" value={parte.turno} />
-          <Row label="Lugar" value={parte.lugar} />
-        </View>
-
-        {/* UNIDAD / CONDUCTOR */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Unidad y Conductor
-          </ThemedText>
-          <Row label="Unidad / Tipo" value={parte.unidad_tipo} />
-          <Row label="Unidad N°" value={parte.unidad_numero} />
-          <Row label="Placa" value={parte.placa} />
-          <Row label="Conductor" value={parte.conductor} />
-          <Row label="DNI Conductor" value={parte.dni_conductor} />
-
-          {parte.participantes &&
-            Array.isArray(parte.participantes) &&
-            parte.participantes.length > 0 && (
-              <>
-                <ThemedText style={styles.participantesHeader}>
-                  SERENO OPERADOR PARTICIPANTE
-                </ThemedText>
-                {parte.participantes.map((pt: any, index: number) => (
-                  <View key={index} style={styles.participanteRow}>
-                    <Text style={styles.participanteBullet}>{index + 1}.</Text>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.participanteNombre}>
-                        {pt?.nombre || '-'}
-                      </Text>
-                      <Text style={styles.participanteDni}>
-                        DNI: {pt?.dni || '-'}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
-              </>
-            )}
-        </View>
-
-        {/* DETALLE / INCIDENCIA */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Detalle de la Incidencia
-          </ThemedText>
-          <Row label="Incidencia" value={parte.sumilla} />
-          <Row label="Origen de atención" value={parte.asunto} />
-          <ThemedText style={styles.label}>Ocurrencia</ThemedText>
-          <ThemedText style={styles.valueBlock}>
-            {parte.ocurrencia || '-'}
-          </ThemedText>
-        </View>
-
-        {/* SUPERVISIÓN */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Supervisión
-          </ThemedText>
-          <Row label="Supervisor Zonal" value={parte.supervisor_zonal} />
-          <Row label="Supervisor General" value={parte.supervisor_general} />
-        </View>
-
-        {/* BOTONES */}
-        <View style={styles.buttonsContainer}>
-          <TouchableOpacity style={styles.btnSecundario} onPress={irAMultimedia}>
-            <IconSymbol name="photo" size={18} color="#0056b3" />
-            <Text style={styles.btnSecundarioText}>
-              Ver contenido multimedia
-            </Text>
-          </TouchableOpacity>
-
-          {/* Cerrar parte solo si está ABIERTO */}
-          {!cerrado && (
-            <TouchableOpacity
-              style={[
-                styles.btnCerrar,
-                (!horaFinLocal.trim() || cerrando) && styles.btnCerrarDisabled,
-              ]}
-              disabled={!horaFinLocal.trim() || cerrando}
-              onPress={ejecutarCerrarParte}
+            <TouchableOpacity 
+              style={styles.mapButton} 
+              onPress={abrirMapa}
+              activeOpacity={0.8}
             >
-              {cerrando ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <IconSymbol name="lock" size={18} color="#fff" />
-                  <Text style={styles.btnCerrarText}>CERRAR PARTE</Text>
-                </>
-              )}
+              <IconSymbol name="map.fill" size={18} color="#fff" />
+              <Text style={styles.mapButtonText}>Ver Ubicación en Mapa</Text>
             </TouchableOpacity>
+          </Section>
+        )}
+
+        {/* EVIDENCIAS */}
+        <Section title="Evidencias Multimedia">
+          <View style={styles.mediaGrid}>
+            {parte.fotos && parte.fotos.map((foto: string, i: number) => (
+              <View key={`img-${i}`} style={styles.mediaItem}>
+                <Image
+                  source={{ uri: `${BASE_URL}/uploads/${foto}` }}
+                  style={styles.mediaImage}
+                />
+              </View>
+            ))}
+            {(!parte.fotos || parte.fotos.length === 0) && (
+              <Text style={styles.noMediaText}>No hay imágenes adjuntas.</Text>
+            )}
+          </View>
+          {parte.videos && parte.videos.length > 0 && (
+             <TouchableOpacity 
+               style={styles.videoLink}
+               onPress={() => router.push(`/parte/multimedia/${id}`)}
+             >
+                <Text style={styles.videoLinkText}>Ver Videos Adjuntos ({parte.videos.length}) ›</Text>
+             </TouchableOpacity>
           )}
-        </View>
+        </Section>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
     </ThemedView>
   );
 }
 
-function Row({ label, value }: { label: string; value: any }) {
-  return (
-    <View style={styles.row}>
-      <ThemedText style={styles.label}>{label}</ThemedText>
-      <ThemedText style={styles.value}>{value || '-'}</ThemedText>
-    </View>
-  );
-}
+// --- ESTILOS ---
+type Styles = {
+  container: ViewStyle;
+  loadingContainer: ViewStyle;
+  loadingText: TextStyle;
+  errorText: TextStyle;
+  scrollContent: ViewStyle;
+  
+  header: ViewStyle;
+  headerTitle: TextStyle;
+  headerSubtitle: TextStyle;
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 40 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: {
-    marginBottom: 16,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: '#eef4ff',
-  },
-  title: { textAlign: 'center', marginBottom: 6 },
-  subTitle: { textAlign: 'center', marginBottom: 8 },
-  bold: { fontWeight: 'bold' },
-  estadoBadge: {
-    alignSelf: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 20,
-    marginTop: 4,
-  },
-  cerrado: { backgroundColor: '#d9534f' },
-  abierto: { backgroundColor: '#5cb85c' },
-  estadoText: { color: '#fff', fontWeight: 'bold' },
-  section: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: '#fff',
+  card: ViewStyle;
+  cardHeader: ViewStyle;
+  cardTitle: TextStyle;
+  cardSubtitle: TextStyle;
+
+  infoRow: ViewStyle;
+  infoLabel: TextStyle;
+  infoValue: TextStyle;
+
+  textBox: ViewStyle;
+  textLabel: TextStyle;
+  textContent: TextStyle;
+
+  participantRow: ViewStyle;
+  participantText: TextStyle;
+
+  gpsContainer: ViewStyle;
+  gpsInfo: ViewStyle;
+  gpsLabel: TextStyle;
+  gpsValue: TextStyle;
+  mapButton: ViewStyle;
+  mapButtonText: TextStyle;
+
+  mediaGrid: ViewStyle;
+  mediaItem: ViewStyle;
+  mediaImage: ImageStyle;
+  noMediaText: TextStyle;
+  videoLink: ViewStyle;
+  videoLinkText: TextStyle;
+};
+
+const styles = StyleSheet.create<Styles>({
+  container: { flex: 1, backgroundColor: "#F3F6FA" },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loadingText: { marginTop: 10, color: "#64748b", fontWeight: "600" },
+  errorText: { color: "#dc2626", fontWeight: "700", fontSize: 16 },
+
+  scrollContent: { padding: 14 },
+
+  header: { marginBottom: 16, alignItems: "center" },
+  headerTitle: { fontSize: 20, fontWeight: "900", color: "#0f172a" },
+  headerSubtitle: { fontSize: 13, color: "#64748b", fontWeight: "600", marginTop: 2 },
+
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: "#E6EDF5",
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  sectionTitle: { marginBottom: 8, color: '#0056b3' },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  label: {
-    fontWeight: '600',
-    flex: 1,
-    marginRight: 8,
-  },
-  value: { flex: 1, textAlign: 'right' },
-  valueBlock: { marginTop: 4, lineHeight: 18 },
+  cardHeader: { marginBottom: 10, borderBottomWidth: 1, borderBottomColor: "#f1f5f9", paddingBottom: 6 },
+  cardTitle: { fontSize: 14, fontWeight: "900", color: "#0f172a", textTransform: "uppercase", letterSpacing: 0.5 },
+  cardSubtitle: { fontSize: 11, color: "#94a3b8", fontWeight: "600", marginTop: 2 },
 
-  participantesHeader: {
-    marginTop: 8,
-    fontWeight: '600',
-  },
-  participanteRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  participanteBullet: {
-    marginRight: 6,
-    color: '#555',
-  },
-  participanteNombre: {
-    fontWeight: '500',
-  },
-  participanteDni: {
-    fontSize: 12,
-    color: '#555',
-  },
+  infoRow: { flexDirection: "row", marginBottom: 6 },
+  infoLabel: { width: 100, fontSize: 13, fontWeight: "700", color: "#64748b" },
+  infoValue: { flex: 1, fontSize: 13, fontWeight: "600", color: "#0f172a" },
 
-  buttonsContainer: { marginTop: 18, gap: 10 },
-  btnSecundario: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#0056b3',
-    backgroundColor: '#f5f8ff',
-  },
-  btnSecundarioText: {
-    color: '#0056b3',
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  btnCerrar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: '#d9534f',
-  },
-  btnCerrarDisabled: {
-    opacity: 0.5,
-  },
-  btnCerrarText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  horaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
+  textBox: { marginTop: 4, backgroundColor: "#f8fafc", padding: 10, borderRadius: 8 },
+  textLabel: { fontSize: 12, fontWeight: "800", color: "#475569", marginBottom: 4 },
+  textContent: { fontSize: 13, color: "#334155", lineHeight: 18 },
+
+  participantRow: { flexDirection: "row", alignItems: "center", marginTop: 6, gap: 8 },
+  participantText: { fontSize: 13, color: "#334155", fontWeight: "600" },
+
+  gpsContainer: { flexDirection: "row", gap: 16, marginBottom: 12 },
+  gpsInfo: { flexDirection: "row", alignItems: "center", gap: 4 },
+  gpsLabel: { fontSize: 12, fontWeight: "700", color: "#64748b" },
+  gpsValue: { fontSize: 12, fontWeight: "600", color: "#0f172a", fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
+  
+  mapButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0a7ea4",
+    paddingVertical: 10,
+    borderRadius: 12,
     gap: 8,
   },
-  horaInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#fff',
-  },
-  btnReloj: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#0056b3',
-  },
-  btnRelojText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    marginLeft: 6,
-  },
-  horaHint: {
-    fontSize: 11,
-    color: '#555',
-    marginTop: 4,
-  },
+  mapButtonText: { color: "#fff", fontWeight: "800", fontSize: 13 },
+
+  mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  mediaItem: { width: 80, height: 80, borderRadius: 8, overflow: "hidden", backgroundColor: "#e2e8f0" },
+  mediaImage: { width: "100%", height: "100%" },
+  noMediaText: { fontSize: 12, color: "#94a3b8", fontStyle: "italic" },
+  
+  videoLink: { marginTop: 12, alignSelf: "flex-start" },
+  videoLinkText: { color: "#0a7ea4", fontWeight: "800", fontSize: 13 },
 });
