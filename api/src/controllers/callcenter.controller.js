@@ -1,38 +1,40 @@
 const pool = require("../config/db");
 
-// 🟢 CAMBIO CRÍTICO: Usamos 'exports.' directo para asegurar que se exporte
 exports.getConteoStats = async (req, res) => {
     try {
         const { fecha, turno } = req.query;
-        
+
         const query = `
             SELECT 
-                zona, 
-                sumilla, 
-                COUNT(*)::int as cantidad 
-            FROM partes_virtuales 
-            WHERE fecha::date = $1::date 
+                zona,
+                sumilla,
+                COUNT(*)::int AS cantidad
+            FROM partes_virtuales
+            WHERE fecha::date = $1::date
               AND UPPER(turno) = UPPER($2)
-            GROUP BY zona, sumilla 
-            ORDER BY zona ASC, cantidad DESC
+            GROUP BY zona, sumilla
         `;
 
         const result = await pool.query(query, [fecha, turno]);
-        
-        const data = { Norte: [], Centro: [], Sur: [] };
+
+        // 🔹 Estructura FIJA para que el frontend no falle
+        const data = {
+            Norte: [],
+            Centro: [],
+            Sur: []
+        };
 
         result.rows.forEach(row => {
-            let zonaKey = "Norte";
-            if (row.zona) {
-                const z = row.zona.toLowerCase();
-                if (z.includes("centro")) zonaKey = "Centro";
-                else if (z.includes("sur")) zonaKey = "Sur";
-            }
-            
-            if (data[zonaKey]) {
-                data[zonaKey].push({ 
-                    tipo: row.sumilla || "SIN ESPECIFICAR", 
-                    cant: parseInt(row.cantidad) 
+            const zonaKey =
+                row.zona?.toUpperCase() === "NORTE" ? "Norte" :
+                row.zona?.toUpperCase() === "CENTRO" ? "Centro" :
+                row.zona?.toUpperCase() === "SUR" ? "Sur" :
+                null;
+
+            if (zonaKey) {
+                data[zonaKey].push({
+                    tipo: row.sumilla || "SIN ESPECIFICAR",
+                    cant: Number(row.cantidad || 0)
                 });
             }
         });
@@ -44,4 +46,3 @@ exports.getConteoStats = async (req, res) => {
         res.status(500).json({ message: "Error al obtener métricas" });
     }
 };
-// Ya no necesitamos module.exports al final porque usamos 'exports.' arriba

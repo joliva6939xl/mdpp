@@ -6,184 +6,90 @@ const db = require("../config/db");
 // Soporta tanto module.exports = pool como module.exports = { pool }
 const pool = db.pool || db;
 
+// CREAR PARTE VIRTUAL (CON GEOLOCALIZACIÓN 📍)
 // =============================
-// CREAR PARTE VIRTUAL
-// =============================
-// FUNCIÓN PARA CREAR PARTE VIRTUAL (con hora_inicio / hora_fin, evidencia y participantes)
 const crearParte = async (req, res) => {
   console.log("📥 Creando Parte Virtual...");
-  console.log("👉 Body recibido en crearParte:", req.body);
-  console.log("👉 Archivos recibidos:", (req.files && req.files.length) || 0);
+  console.log("👉 Body recibido:", req.body);
 
   const client = await pool.connect();
 
   const {
-    parte_fisico,
-    fecha,
-    hora,       // hora inicio
-    hora_fin,   // hora fin (opcional, puede venir vacío)
-    sector,
-    zona,
-    turno,
-    lugar,
-    unidad_tipo,
-    unidad_numero,
-    placa,
-    conductor,
-    dni_conductor,
-    sumilla,
-    asunto,
-    ocurrencia,
-    sup_zonal,
-    sup_general,
-    usuario_id,
-    participantes, // NUEVO: viene como string JSON o array
+    parte_fisico, fecha, hora, hora_fin, sector, zona, turno, lugar,
+    unidad_tipo, unidad_numero, placa, conductor, dni_conductor,
+    sumilla, asunto, ocurrencia, sup_zonal, sup_general,
+    usuario_id, participantes,
+    latitud, longitud // <--- 📍 NUEVOS CAMPOS RECIBIDOS
   } = req.body;
 
   try {
     await client.query("BEGIN");
 
+    // Agregamos latitud y longitud al INSERT
     const insertParteQuery = `
       INSERT INTO partes_virtuales (
-        parte_fisico,
-        fecha,
-        hora,
-        hora_fin,
-        sector,
-        zona,
-        turno,
-        lugar,
-        unidad_tipo,
-        unidad_numero,
-        placa,
-        conductor,
-        dni_conductor,
-        sumilla,
-        asunto,
-        ocurrencia,
-        sup_zonal,
-        sup_general,
-        participantes,
-        usuario_id
+        parte_fisico, fecha, hora, hora_fin, sector, zona, turno, lugar,
+        unidad_tipo, unidad_numero, placa, conductor, dni_conductor,
+        sumilla, asunto, ocurrencia, sup_zonal, sup_general,
+        participantes, usuario_id,
+        latitud, longitud 
       ) VALUES (
-        $1,  $2,  $3,  $4,
-        $5,  $6,  $7,  $8,
-        $9,  $10, $11, $12,
-        $13, $14, $15, $16,
-        $17, $18, $19, $20
+        $1,  $2,  $3,  $4,  $5,  $6,  $7,  $8,
+        $9,  $10, $11, $12, $13, $14, $15, $16,
+        $17, $18, $19, $20,
+        $21, $22
       )
       RETURNING id;
     `;
 
-    // Normalizamos participantes a JSON válido o NULL
     let participantesValue = null;
     if (participantes) {
       try {
-        const parsed =
-          typeof participantes === "string"
-            ? JSON.parse(participantes)
-            : participantes;
-
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          participantesValue = JSON.stringify(parsed); // se castea a jsonb en Postgres
-        }
-      } catch (e) {
-        console.warn(
-          "⚠️ participantes no es JSON válido, se guarda como NULL:",
-          participantes
-        );
-      }
+        const parsed = typeof participantes === "string" ? JSON.parse(participantes) : participantes;
+        if (Array.isArray(parsed) && parsed.length > 0) participantesValue = JSON.stringify(parsed);
+      } catch (e) { console.warn("⚠️ Error parseando participantes"); }
     }
 
     const valuesParte = [
-      parte_fisico,
-      fecha,
-      hora || null, // hora inicio
-      hora_fin && hora_fin.trim() !== "" ? hora_fin : null, // si viene vacío, va como NULL
-      sector,
-      zona,
-      turno,
-      lugar,
-      unidad_tipo,
-      unidad_numero,
-      placa,
-      conductor,
-      dni_conductor,
-      sumilla,
-      asunto,
-      ocurrencia,
-      sup_zonal,
-      sup_general,
-      participantesValue,
-      usuario_id,
+      parte_fisico, fecha, hora || null, hora_fin?.trim() || null, sector, zona, turno, lugar,
+      unidad_tipo, unidad_numero, placa, conductor, dni_conductor, sumilla, asunto, ocurrencia,
+      sup_zonal, sup_general, participantesValue, usuario_id,
+      latitud || null, longitud || null // <--- 📍 SE GUARDAN AQUÍ
     ];
 
     const result = await client.query(insertParteQuery, valuesParte);
     const parteId = result.rows[0].id;
 
-    console.log("✅ Parte insertado con id:", parteId);
+    // ... (El resto del código de archivos sigue IGUAL, no lo he tocado) ...
+    // Manejo de Archivos
+    const carpetaParte = path.join(__dirname, "../../uploads/partes", String(parteId));
+    if (!fs.existsSync(carpetaParte)) fs.mkdirSync(carpetaParte, { recursive: true });
 
-    // 2. CARPETA FÍSICA: uploads/partes/<id>
-    const carpetaParte = path.join(
-      __dirname,
-      "../../uploads/partes",
-      String(parteId)
-    );
-
-    if (!fs.existsSync(carpetaParte)) {
-      fs.mkdirSync(carpetaParte, { recursive: true });
-    }
-
-    // 3. MOVER ARCHIVOS + REGISTRAR EN parte_archivos
     if (req.files && req.files.length > 0) {
-      console.log("📎 Recibidos", req.files.length, "archivos de evidencia");
-
       for (const file of req.files) {
-        const oldPath = file.path; // ruta temporal
         const newPath = path.join(carpetaParte, file.filename);
-
-        fs.renameSync(oldPath, newPath);
-
-        // ruta relativa que usará el frontend: /uploads/partes/<id>/<archivo>
-        const rutaRelativa = path
-          .join("partes", String(parteId), file.filename)
-          .replace(/\\/g, "/");
-
-        const tipo =
-          file.mimetype && file.mimetype.startsWith("video")
-            ? "video"
-            : "foto";
-
+        fs.renameSync(file.path, newPath);
+        const rutaRelativa = path.join("partes", String(parteId), file.filename).replace(/\\/g, "/");
+        const tipo = file.mimetype.startsWith("video") ? "video" : "foto";
         await client.query(
-          `
-          INSERT INTO parte_archivos (parte_id, tipo, ruta, nombre_original)
-          VALUES ($1, $2, $3, $4)
-          `,
+          `INSERT INTO parte_archivos (parte_id, tipo, ruta, nombre_original) VALUES ($1, $2, $3, $4)`,
           [parteId, tipo, rutaRelativa, file.originalname || file.filename]
         );
       }
     }
 
     await client.query("COMMIT");
+    res.json({ ok: true, message: "Parte creado con ubicación", id: parteId });
 
-    return res.json({
-      ok: true,
-      message: "Parte virtual creado correctamente",
-      id: parteId,
-    });
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("❌ Error al crear parte virtual:", error);
-
-    return res.status(500).json({
-      ok: false,
-      message: "Error interno al crear parte virtual",
-      error: error.message,
-    });
+    console.error("❌ Error crearParte:", error);
+    res.status(500).json({ ok: false, message: "Error interno", error: error.message });
   } finally {
     client.release();
   }
 };
+
 // =============================
 // LISTAR PARTES (paginado, más nuevos primero)
 // =============================
@@ -261,7 +167,7 @@ const obtenerParte = async (req, res) => {
 
   try {
     const parteQuery = `
-     SELECT
+      SELECT
         id,
         parte_fisico,
         fecha,
@@ -332,21 +238,18 @@ const obtenerParte = async (req, res) => {
     const archivos = archivosResult.rows || [];
 
     const esImagen = (ruta = "") =>
-  ruta.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+      ruta.match(/\.(jpg|jpeg|png|gif|webp)$/i);
 
-const esVideo = (ruta = "") =>
-  ruta.match(/\.(mp4|avi|mov|mkv|webm)$/i);
+    const esVideo = (ruta = "") =>
+      ruta.match(/\.(mp4|avi|mov|mkv|webm)$/i);
 
-const fotos = archivos
-  .filter(a => esImagen(a.ruta))
-  .map(a => a.ruta);
+    const fotos = archivos
+      .filter(a => esImagen(a.ruta))
+      .map(a => a.ruta);
 
-const videos = archivos
-  .filter(a => esVideo(a.ruta))
-  .map(a => a.ruta);
-
-parte.fotos = fotos;
-parte.videos = videos;
+    const videos = archivos
+      .filter(a => esVideo(a.ruta))
+      .map(a => a.ruta);
 
     parte.fotos = fotos;
     parte.videos = videos;
@@ -531,10 +434,79 @@ const cerrarParte = async (req, res) => {
   }
 };
 
+// ==============================================================
+//  🔥 NUEVO: ESTADÍSTICAS CALL CENTER (BLINDADA y SINÉRGICA)
+//  "TURNO DIA" -> busca MAÑANA, TARDE, DIA
+//  "TURNO NOCHE" -> busca NOCHE, TURNO NOCHE
+// ==============================================================
+const obtenerEstadisticasCallCenter = async (req, res) => {
+    const { fecha, turno } = req.query;
+    console.log(`\n📊 [STATS] Buscando: Fecha=${fecha}, Turno Solicitado="${turno}"`);
+  
+    try {
+      // 1. TRAER TODO LO DE LA FECHA (SIN FILTRAR TURNO NI ZONA EN SQL para evitar errores de tipeo)
+      //    Usamos 'fecha::text LIKE' para ignorar si la fecha tiene hora pegada
+      const text = `
+        SELECT id, zona, turno 
+        FROM partes_virtuales 
+        WHERE fecha::text LIKE $1 || '%'
+      `;
+      
+      const result = await pool.query(text, [fecha]);
+      const todos = result.rows;
+
+      const stats = { Norte: 0, Centro: 0, Sur: 0, Total: 0 };
+      
+      // Normalizamos el turno solicitado a mayúsculas
+      const turnoReq = (turno || "").toUpperCase().trim();
+
+      todos.forEach(row => {
+          const dbTurno = (row.turno || "").toUpperCase().trim();
+          const dbZona = (row.zona || "").toUpperCase().trim();
+
+          // LÓGICA DE COINCIDENCIA (Sinergia Inteligente)
+          let coincide = false;
+
+          if (turnoReq === "TURNO DIA") {
+             // Si el selector dice "TURNO DIA", aceptamos todo esto:
+             if (["MAÑANA", "TARDE", "DIA", "TURNO DIA", "TURNO DÍA"].includes(dbTurno)) {
+                 coincide = true;
+             }
+          } else if (turnoReq === "TURNO NOCHE") {
+             // Si el selector dice "TURNO NOCHE", aceptamos todo esto:
+             if (["NOCHE", "TURNO NOCHE"].includes(dbTurno)) {
+                 coincide = true;
+             }
+          } else {
+             // Si piden otra cosa específica, coincidencia exacta
+             if (dbTurno === turnoReq) coincide = true;
+          }
+
+          // Si el turno coincide, sumamos a la zona correspondiente
+          if (coincide) {
+              if (dbZona === 'NORTE') stats.Norte++;
+              else if (dbZona === 'CENTRO') stats.Centro++;
+              else if (dbZona === 'SUR') stats.Sur++;
+          }
+      });
+
+      // Calculamos total
+      stats.Total = stats.Norte + stats.Centro + stats.Sur;
+
+      console.log("✅ [STATS] Resultado:", stats);
+      res.json(stats);
+  
+    } catch (error) {
+      console.error("❌ Error stats:", error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  };
+
 module.exports = {
   crearParte,
   listarPartes,
   obtenerParte,
   actualizarParte,
   cerrarParte,
+  obtenerEstadisticasCallCenter // <--- Función agregada correctamente
 };

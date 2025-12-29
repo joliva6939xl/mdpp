@@ -5,14 +5,12 @@ import { DownloadWordButton } from "./DownloadWordButton";
 
 const API_URL = "http://localhost:4000";
 
-// --- HELPERS ---
 const cleanFileName = (rawPath: any): string | null => {
     if (!rawPath) return null;
     const pathString = typeof rawPath === 'string' ? rawPath : (rawPath.ruta || rawPath.path || "");
     return pathString.split(/[\\/]/).pop() || null;
 };
 
-// Opciones de fetch
 const fetchOptions = (token?: string | null) => ({
     method: 'GET',
     headers: {
@@ -41,9 +39,10 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
 
     // --- ESTADOS ---
     const [fecha, setFecha] = useState<string>(new Date().toISOString().split('T')[0]);
-    const [turno, setTurno] = useState<string>("MAÑANA");
-    const [counts, setCounts] = useState<any>({ Norte: 0, Centro: 0, Sur: 0 });
-
+    // ✅ CAMBIO: Inicia en "TURNO DIA"
+    const [turno, setTurno] = useState<string>("TURNO DIA");
+    
+    const [counts, setCounts] = useState<any>({ Norte: 0, Centro: 0, Sur: 0, Total: 0 });
     const [showModal, setShowModal] = useState(false);
     const [showMediaModal, setShowMediaModal] = useState(false);
     const [view, setView] = useState<'list' | 'detail'>('list');
@@ -53,11 +52,10 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
     const [userPartes, setUserPartes] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState<'cv' | 'partes'>('cv');
     
-    // Estado del parte y media
     const [parteSel, setParteSel] = useState<any>(null);
     const [mediaSeleccionado, setMediaSeleccionado] = useState<any>(null);
 
-    // --- CARGA INICIAL ---
+    // --- CARGA DE ESTADÍSTICAS ---
     useEffect(() => {
         const token = localStorage.getItem("adminToken");
         const loadStats = async () => {
@@ -65,11 +63,11 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                 const res = await fetch(`${API_URL}/api/callcenter/stats?fecha=${fecha}&turno=${turno}`, fetchOptions(token));
                 if (res.ok) {
                     const data = await res.json();
-                    const calc = (arr: any) => arr?.reduce((acc: number, curr: any) => acc + curr.cant, 0) || 0;
                     setCounts({
-                        Norte: calc(data.Norte),
-                        Centro: calc(data.Centro),
-                        Sur: calc(data.Sur)
+                        Norte: data.Norte || 0,
+                        Centro: data.Centro || 0,
+                        Sur: data.Sur || 0,
+                        Total: data.Total || 0
                     });
                 }
             } catch (e) { console.error(e); }
@@ -77,6 +75,7 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
         loadStats();
     }, [fecha, turno]);
 
+    // --- RESTO DE FUNCIONES ---
     const openUsers = async () => {
         setShowModal(true); 
         setView('list');
@@ -102,7 +101,6 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
         } catch (e) { console.error(e); }
     };
 
-    // --- CARGAR DETALLE (Lógica Admin) ---
     const handleSelectParte = async (idParte: number) => {
         const token = localStorage.getItem("adminToken");
         try {
@@ -119,12 +117,7 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                     const tipoItem = item.tipo || "";
                     const esVideo = tipoItem.includes("video") || rutaReal.toLowerCase().endsWith(".mp4") || rutaReal.toLowerCase().endsWith(".mov");
 
-                    return {
-                        id: item.id || idx,
-                        tipo: esVideo ? "video" : "foto",
-                        ruta: urlFinal,
-                        nombre_original: item.nombre_original || "archivo"
-                    };
+                    return { id: item.id || idx, tipo: esVideo ? "video" : "foto", ruta: urlFinal, nombre_original: item.nombre_original || "archivo" };
                 }).filter((x: any) => x.ruta !== "");
 
                 setParteSel({ ...base, todosArchivos: mapped });
@@ -146,50 +139,33 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
         return file ? `${API_URL}/uploads/usuarios/${file}` : null;
     }, [userSel]);
 
-    // --- NAVEGACIÓN GALERÍA (SOLO PARA MODAL) ---
     const navegarGaleria = (direccion: 'prev' | 'next') => {
         if (!parteSel?.todosArchivos || parteSel.todosArchivos.length <= 1) return;
         const currentIndex = parteSel.todosArchivos.findIndex((m: any) => m.ruta === mediaSeleccionado?.ruta);
         if (currentIndex === -1) return;
-
         let newIndex;
-        if (direccion === 'next') {
-            newIndex = (currentIndex + 1) % parteSel.todosArchivos.length;
-        } else {
-            newIndex = (currentIndex - 1 + parteSel.todosArchivos.length) % parteSel.todosArchivos.length;
-        }
+        if (direccion === 'next') { newIndex = (currentIndex + 1) % parteSel.todosArchivos.length; } 
+        else { newIndex = (currentIndex - 1 + parteSel.todosArchivos.length) % parteSel.todosArchivos.length; }
         setMediaSeleccionado(parteSel.todosArchivos[newIndex]);
     };
 
     // --- ESTILOS ---
     const styles: Record<string, React.CSSProperties> = {
-        container: { padding: '40px 20px', background: '#f4f6f8', minHeight: '100vh', fontFamily: "'Segoe UI', sans-serif" },
+        container: { padding: '40px 20px', background: '#f4f6f8', minHeight: '100vh', fontFamily: "'Segoe UI', sans-serif'" },
         card: { background: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', marginBottom: '30px' },
         input: { padding: '10px', border: '1px solid #cbd5e1', borderRadius: '6px', outline: 'none' },
         btnNav: { background: '#e2e8f0', color: '#475569', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' },
-        
         overlay: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9000 },
         modal: { background: 'white', width: '95%', maxWidth: '1000px', height: '85vh', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' },
-        
         mediaOverlay: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 },
         mediaContent: { background: 'transparent', padding: '0', display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: '90%', maxHeight: '90%', position: 'relative' },
-        
-        arrowBtn: {
-            position: 'absolute', top: '50%', transform: 'translateY(-50%)',
-            background: 'rgba(255, 255, 255, 0.2)', border: '2px solid rgba(255,255,255,0.5)',
-            color: 'white', width: '50px', height: '50px', borderRadius: '50%',
-            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '24px', zIndex: 10001, transition: 'background 0.3s'
-        },
-
+        arrowBtn: { position: 'absolute', top: '50%', transform: 'translateY(-50%)', background: 'rgba(255, 255, 255, 0.2)', border: '2px solid rgba(255,255,255,0.5)', color: 'white', width: '50px', height: '50px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', zIndex: 10001, transition: 'background 0.3s' },
         detailGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', background: '#f9fafb', padding: '15px', borderRadius: '8px' },
         label: { fontSize: '12px', fontWeight: 'bold', color: '#4b5563', marginRight: '5px', textTransform: 'uppercase' },
         value: { fontSize: '12px', color: '#111827', fontWeight: 700 },
         sidebar: { width: '280px', borderRight: '1px solid #e5e7eb', overflowY: 'auto', background: '#ffffff', flexShrink: 0 },
         parteItem: { padding: '15px', borderBottom: '1px solid #f3f4f6', cursor: 'pointer', fontSize: '13px', transition: 'background 0.2s' },
         tabBtn: { padding: '8px 16px', marginRight: '10px', border: '1px solid #d1d5db', cursor: 'pointer', borderRadius: '4px', fontSize: '13px', fontWeight: 500 },
-        
-        // PADDING EXTRA PARA QUE NO SE CORTE EL CONTENIDO ABAJO
         detailScrollContainer: { flex: 1, padding: '25px', paddingBottom: '80px', overflowY: 'auto', height: '100%' }
     };
 
@@ -211,11 +187,13 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                 <h2 style={{ fontSize: '18px', marginBottom: '20px', fontWeight: 'bold' }}>PANEL DE CONTROL</h2>
                 <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
                     <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={styles.input} />
+                    
+                    {/* ✅ CAMBIO: SELECTOR SIMPLIFICADO */}
                     <select value={turno} onChange={e => setTurno(e.target.value)} style={styles.input}>
-                        <option value="MAÑANA">MAÑANA</option>
-                        <option value="TARDE">TARDE</option>
-                        <option value="NOCHE">NOCHE</option>
+                        <option value="TURNO DIA">TURNO DIA</option>
+                        <option value="TURNO NOCHE">TURNO NOCHE</option>
                     </select>
+
                     <button style={{ ...styles.btnNav, background: '#0f172a', color: 'white' }}>ZONAS</button>
                     <button onClick={() => navigate('/estadistica')} style={styles.btnNav}>MÉTRICAS (BI)</button>
                     <button onClick={openUsers} style={styles.btnNav}>USUARIOS</button>
@@ -226,16 +204,27 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '25px', marginBottom: '30px' }}>
                 {['NORTE', 'CENTRO', 'SUR'].map((zona) => {
-                    const key = zona.charAt(0) + zona.slice(1).toLowerCase();
+                    const zonaKey = zona.charAt(0) + zona.slice(1).toLowerCase(); 
+                    const cantidad = counts[zonaKey] || 0;
+                    
                     return (
                         <div key={zona} style={{ background: 'white', padding: '20px', borderRadius: '12px', borderTop: '6px solid #3b82f6', minHeight: '350px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', marginBottom: '15px', borderBottom: '1px solid #eee', paddingBottom: '15px' }}>
                                 <span>{zona}</span>
-                                <span>Total: {counts[key]}</span>
+                                <span>Total: {cantidad}</span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px', color: '#94a3b8', flexDirection: 'column' }}>
-                                <div style={{ fontSize: '30px' }}>∅</div>
-                                <div>Sin incidencias</div>
+                                {cantidad > 0 ? (
+                                    <>
+                                        <div style={{ fontSize: '40px', color: '#3b82f6', fontWeight: 'bold' }}>{cantidad}</div>
+                                        <div style={{ fontWeight: 'bold', color: '#64748b' }}>Incidencias Reportadas</div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div style={{ fontSize: '30px' }}>∅</div>
+                                        <div>Sin incidencias</div>
+                                    </>
+                                )}
                             </div>
                         </div>
                     );
@@ -244,7 +233,7 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
 
             <div style={{ background: '#0f172a', color: 'white', padding: '25px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '18px', fontWeight: 'bold' }}>TOTAL INCIDENCIAS HOY</span>
-                <span style={{ fontSize: '42px', fontWeight: 'bold' }}>{counts.Norte + counts.Centro + counts.Sur}</span>
+                <span style={{ fontSize: '42px', fontWeight: 'bold' }}>{counts.Total}</span>
             </div>
 
             {/* MODAL PRINCIPAL */}
@@ -346,7 +335,6 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                                                             
                                                             {parteSel.todosArchivos?.length > 0 ? (
                                                                 <>
-                                                                    {/* 🟢 BOTÓN INTERACTIVO (ÚNICA FORMA DE ABRIR) */}
                                                                     <button 
                                                                         onClick={() => {
                                                                             setMediaSeleccionado(parteSel.todosArchivos[0]);
@@ -357,10 +345,9 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                                                                         📂 Ver Galería Completa
                                                                     </button>
 
-                                                                    {/* 🔴 VISTA PREVIA (NO INTERACTIVA, SOLO VISUAL) */}
                                                                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                                                                         {parteSel.todosArchivos.map((m: any, i: number) => (
-                                                                            <div key={i} style={{ width: '100px', height: '100px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #ddd', position: 'relative', cursor: 'default' /* Cursor normal */ }}>
+                                                                            <div key={i} style={{ width: '100px', height: '100px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #ddd', position: 'relative', cursor: 'default' }}>
                                                                                 {m.tipo === "video" ? (
                                                                                     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
                                                                                         <video src={m.ruta} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted preload="metadata" />
@@ -393,20 +380,17 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                 </div>
             )}
 
-            {/* MODAL MULTIMEDIA (INTERACTIVO CON FLECHAS) */}
+            {/* MODAL MULTIMEDIA (ZOOM INTERACTIVO) */}
             {showMediaModal && mediaSeleccionado && (
                 <div style={styles.mediaOverlay}>
-                    {/* Botón Cerrar */}
                     <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 10002 }}>
                         <button onClick={() => setShowMediaModal(false)} style={{ padding: '8px 16px', background: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontWeight: 'bold' }}>✕ Cerrar</button>
                     </div>
 
-                    {/* FLECHA IZQUIERDA */}
                     {parteSel?.todosArchivos?.length > 1 && (
                         <button onClick={(e) => { e.stopPropagation(); navegarGaleria('prev'); }} style={{ ...styles.arrowBtn, left: '20px' }}>❮</button>
                     )}
 
-                    {/* CONTENIDO */}
                     <div style={styles.mediaContent}>
                         {mediaSeleccionado.tipo === "video" ? (
                             <video controls autoPlay style={{ maxWidth: '90vw', maxHeight: '80vh', borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
@@ -420,7 +404,6 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                         </div>
                     </div>
 
-                    {/* FLECHA DERECHA */}
                     {parteSel?.todosArchivos?.length > 1 && (
                         <button onClick={(e) => { e.stopPropagation(); navegarGaleria('next'); }} style={{ ...styles.arrowBtn, right: '20px' }}>❯</button>
                     )}
