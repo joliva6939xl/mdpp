@@ -107,24 +107,25 @@ export default function PerfilScreen() {
         : null;
 
     return (
+      <View style={{ flex: 1 }}> {/* Contenedor principal para posicionar el botón flotante */}
         <ParallaxScrollView
             headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
             headerImage={
                 <View style={styles.headerContainer}>
-                   <View style={styles.avatarContainer}>
-                       {fotoUrl ? (
-                           <Image source={{ uri: fotoUrl }} style={styles.avatarImage} />
-                       ) : (
-                           <View style={styles.avatarPlaceholder}>
+                    <View style={styles.avatarContainer}>
+                        {fotoUrl ? (
+                            <Image source={{ uri: fotoUrl }} style={styles.avatarImage} />
+                        ) : (
+                            <View style={styles.avatarPlaceholder}>
                                 <Text style={styles.avatarText}>{inicial}</Text>
-                           </View>
-                       )}
-                       <TouchableOpacity style={styles.cameraButton} onPress={pickImage} disabled={uploading}>
-                           {uploading ? <ActivityIndicator size="small" color="#fff"/> : <IconSymbol name="camera.fill" size={20} color="#fff" />}
-                       </TouchableOpacity>
-                   </View>
-                   <ThemedText type="title" style={styles.username}>{userData.nombre}</ThemedText>
-                   <ThemedText style={styles.role}>{userData.cargo}</ThemedText>
+                            </View>
+                        )}
+                        <TouchableOpacity style={styles.cameraButton} onPress={pickImage} disabled={uploading}>
+                            {uploading ? <ActivityIndicator size="small" color="#fff"/> : <IconSymbol name="camera.fill" size={20} color="#fff" />}
+                        </TouchableOpacity>
+                    </View>
+                    <ThemedText type="title" style={styles.username}>{userData.nombre}</ThemedText>
+                    <ThemedText style={styles.role}>{userData.cargo}</ThemedText>
                 </View>
             }>
             <ThemedView style={styles.contentContainer}>
@@ -138,8 +139,22 @@ export default function PerfilScreen() {
                 <TouchableOpacity style={styles.btnLogout} onPress={async () => { await cerrarSesion(); router.replace('/login'); }}>
                     <Text style={{color:'#fff', fontWeight:'bold'}}>CERRAR SESIÓN</Text>
                 </TouchableOpacity>
+
+                {/* Espacio extra para que el botón no tape el botón de cerrar sesión */}
+                <View style={{ height: 80 }} />
             </ThemedView>
         </ParallaxScrollView>
+
+        {/* ✅ BOTÓN FLOTANTE AGREGADO */}
+        <TouchableOpacity 
+            style={styles.floatingHomeButton} 
+            onPress={() => router.push('/(tabs)')}
+            activeOpacity={0.9}
+        >
+            <IconSymbol name="house.fill" size={22} color="#fff" />
+            <Text style={styles.floatingHomeText}>Volver al Inicio</Text>
+        </TouchableOpacity>
+      </View>
     );
 }
 
@@ -168,5 +183,25 @@ const styles = StyleSheet.create({
     infoRow: { flexDirection: 'row', alignItems: 'center', gap: 15, borderBottomWidth: 1, borderBottomColor: '#eee', paddingVertical: 8 },
     label: { fontSize: 12, color: '#999' },
     value: { fontSize: 16, color: '#333' },
-    btnLogout: { backgroundColor: '#dc3545', padding: 15, borderRadius: 10, alignItems: 'center' }
+    btnLogout: { backgroundColor: '#dc3545', padding: 15, borderRadius: 10, alignItems: 'center' },
+
+    // ✅ ESTILOS BOTÓN FLOTANTE AGREGADOS
+    floatingHomeButton: {
+        position: 'absolute',
+        bottom: 25,
+        alignSelf: 'center',
+        backgroundColor: '#0f172a',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 24,
+        borderRadius: 50,
+        elevation: 10,
+        zIndex: 9999,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4.65,
+    },
+    floatingHomeText: { color: '#fff', fontWeight: 'bold', marginLeft: 10, fontSize: 14 },
 });

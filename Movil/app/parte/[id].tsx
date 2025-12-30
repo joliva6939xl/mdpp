@@ -1,4 +1,3 @@
-// Archivo: Movil/app/parte/[id].tsx
 import React, { useEffect, useState } from "react";
 import {
   StyleSheet,
@@ -30,7 +29,6 @@ const BASE_URL =
     ? "http://localhost:4000"
     : "http://10.0.2.2:4000";
 
-// --- Componentes Reutilizables de Estilo ---
 type SectionProps = {
   title: string;
   subtitle?: string;
@@ -91,31 +89,32 @@ export default function DetalleParteScreen() {
     }
   }, [id, showAlert]);
 
-  // ✅ FUNCIÓN CORREGIDA PARA WEB Y MÓVIL
   const abrirMapa = () => {
     if (!parte?.latitud || !parte?.longitud) return;
     
     const lat = parte.latitud;
     const lng = parte.longitud;
-    const label = "Ubicación del Parte";
+    const label = "Ubicacion";
 
-    // 1. Definir la URL según la plataforma
+    const scheme = Platform.select({
+      ios: 'maps:0,0?q=',
+      android: 'geo:0,0?q=',
+    });
+    
+    const latLng = `${lat},${lng}`;
+    
+    // URL corregida anteriormente
     const url = Platform.select({
-      // Web: Abre Google Maps en una nueva pestaña
-      web: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
-      // iOS: Abre Apple Maps
-      ios: `maps:0,0?q=${label}@${lat},${lng}`,
-      // Android: Abre la app predeterminada (Google Maps, Waze, etc.)
-      android: `geo:0,0?q=${lat},${lng}(${label})`,
+      web: `https://www.google.com/maps?q=${lat},${lng}`, 
+      ios: `${scheme}${label}@${latLng}`,
+      android: `${scheme}${latLng}(${label})`,
     });
 
-    // 2. Intentar abrir la URL
     if (url) {
         Linking.openURL(url).catch((err) => {
            console.error("Error al abrir mapa:", err);
-           // Fallback: Si falla en el celular (ej. no tiene app de mapas), abre el navegador
            if (Platform.OS !== 'web') {
-              Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`);
+              Linking.openURL(`https://www.google.com/maps?q=${lat},${lng}`);
            }
         });
     }
@@ -133,7 +132,6 @@ export default function DetalleParteScreen() {
   if (!parte) {
     return (
       <View style={styles.loadingContainer}>
-        {/* ✅ CORRECCIÓN DEFINITIVA: Usamos &quot; en lugar de " */}
         <Text style={styles.errorText}>No se encontró información para &quot;{id}&quot;.</Text>
       </View>
     );
@@ -196,7 +194,7 @@ export default function DetalleParteScreen() {
           </Section>
         )}
 
-        {/* ✅ SECCIÓN DE UBICACIÓN GPS */}
+        {/* UBICACIÓN GPS */}
         {parte.latitud && parte.longitud && (
           <Section title="Ubicación GPS" subtitle="Coordenadas registradas del incidente.">
             <View style={styles.gpsContainer}>
@@ -221,14 +219,15 @@ export default function DetalleParteScreen() {
           </Section>
         )}
 
-        {/* EVIDENCIAS */}
+        {/* EVIDENCIAS MULTIMEDIA */}
         <Section title="Evidencias Multimedia">
           <View style={styles.mediaGrid}>
             {parte.fotos && parte.fotos.map((foto: string, i: number) => (
               <View key={`img-${i}`} style={styles.mediaItem}>
                 <Image
                   source={{ uri: `${BASE_URL}/uploads/${foto}` }}
-                  style={styles.mediaImage}
+                  style={{ width: 100, height: 100 }}
+                  resizeMode="cover" 
                 />
               </View>
             ))}
@@ -236,12 +235,18 @@ export default function DetalleParteScreen() {
               <Text style={styles.noMediaText}>No hay imágenes adjuntas.</Text>
             )}
           </View>
+
+          {/* ✅ BOTÓN DE VIDEO MEJORADO */}
           {parte.videos && parte.videos.length > 0 && (
              <TouchableOpacity 
-               style={styles.videoLink}
+               style={styles.videoButton} 
                onPress={() => router.push(`/parte/multimedia/${id}`)}
+               activeOpacity={0.8}
              >
-                <Text style={styles.videoLinkText}>Ver Videos Adjuntos ({parte.videos.length}) ›</Text>
+                <IconSymbol name="play.rectangle.fill" size={20} color="#fff" />
+                <Text style={styles.videoButtonText}>
+                  Ver Videos Adjuntos ({parte.videos.length})
+                </Text>
              </TouchableOpacity>
           )}
         </Section>
@@ -291,8 +296,10 @@ type Styles = {
   mediaItem: ViewStyle;
   mediaImage: ImageStyle;
   noMediaText: TextStyle;
-  videoLink: ViewStyle;
-  videoLinkText: TextStyle;
+  
+  // Nuevos estilos para el botón de video
+  videoButton: ViewStyle;
+  videoButtonText: TextStyle;
 };
 
 const styles = StyleSheet.create<Styles>({
@@ -351,10 +358,41 @@ const styles = StyleSheet.create<Styles>({
   mapButtonText: { color: "#fff", fontWeight: "800", fontSize: 13 },
 
   mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  mediaItem: { width: 80, height: 80, borderRadius: 8, overflow: "hidden", backgroundColor: "#e2e8f0" },
-  mediaImage: { width: "100%", height: "100%" },
+  mediaItem: { 
+    width: 100, 
+    height: 100, 
+    borderRadius: 8, 
+    overflow: "hidden", 
+    backgroundColor: "#e2e8f0",
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+    marginBottom: 8
+  },
+  mediaImage: { width: 100, height: 100 }, 
   noMediaText: { fontSize: 12, color: "#94a3b8", fontStyle: "italic" },
   
-  videoLink: { marginTop: 12, alignSelf: "flex-start" },
-  videoLinkText: { color: "#0a7ea4", fontWeight: "800", fontSize: 13 },
+  // ✅ ESTILOS NUEVOS DEL BOTÓN VIDEO
+  videoButton: {
+    marginTop: 16,
+    backgroundColor: "#0f172a", // Color oscuro para resaltar
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  videoButtonText: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 14,
+    letterSpacing: 0.5,
+  },
 });

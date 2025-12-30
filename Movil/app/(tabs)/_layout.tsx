@@ -24,24 +24,20 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: "#0a7ea4" },
-        headerTintColor: "#fff",
-        headerTitleStyle: { fontWeight: "900" },
+        // ✅ ESTO ELIMINA LA BARRA AZUL DE ARRIBA
+        headerShown: false,
 
-        tabBarActiveTintColor: "#0a7ea4",
-        tabBarInactiveTintColor: "#64748b",
-        tabBarStyle: {
-          height: 62,
-          paddingBottom: 10,
-          paddingTop: 8,
+        // ✅ ESTO ELIMINA LOS "BOTONCITOS" DE ABAJO
+        tabBarStyle: { 
+            display: 'none' 
         },
-        tabBarLabelStyle: { fontWeight: "800", fontSize: 12 },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: "Nuevo Parte",
+          // Los iconos se quedan en el código pero no se verán porque ocultamos la barra
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="note-add" color={color} size={size ?? 24} />
           ),

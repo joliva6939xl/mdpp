@@ -1,16 +1,20 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+// Asegúrate de que este componente exista o coméntalo si no lo usas aún
 import { DownloadWordButton } from "./DownloadWordButton";
 
+// URL del Backend
 const API_URL = "http://localhost:4000";
 
+// Función auxiliar para limpiar nombres de archivos
 const cleanFileName = (rawPath: any): string | null => {
     if (!rawPath) return null;
     const pathString = typeof rawPath === 'string' ? rawPath : (rawPath.ruta || rawPath.path || "");
     return pathString.split(/[\\/]/).pop() || null;
 };
 
+// Opciones para fetch con token
 const fetchOptions = (token?: string | null) => ({
     method: 'GET',
     headers: {
@@ -21,12 +25,12 @@ const fetchOptions = (token?: string | null) => ({
 });
 
 interface CallCenterDashboardProps {
-  userName?: string;
-  onBack?: () => void;
-  onLogout?: () => void;
-  internoNombre?: string;
-  internoRoperoTurno?: string;
-  onOpenInternalLogin?: () => void;
+    userName?: string;
+    onBack?: () => void;
+    onLogout?: () => void;
+    internoNombre?: string;
+    internoRoperoTurno?: string;
+    onOpenInternalLogin?: () => void;
 }
 
 const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({ 
@@ -39,14 +43,17 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
 
     // --- ESTADOS ---
     const [fecha, setFecha] = useState<string>(new Date().toISOString().split('T')[0]);
-    // ✅ CAMBIO: Inicia en "TURNO DIA"
     const [turno, setTurno] = useState<string>("TURNO DIA");
     
+    // Contadores matemáticos
     const [counts, setCounts] = useState<any>({ Norte: 0, Centro: 0, Sur: 0, Total: 0 });
+    
+    // Modales y Vistas
     const [showModal, setShowModal] = useState(false);
     const [showMediaModal, setShowMediaModal] = useState(false);
     const [view, setView] = useState<'list' | 'detail'>('list');
     
+    // Datos de usuarios y partes
     const [usuarios, setUsuarios] = useState<any[]>([]);
     const [userSel, setUserSel] = useState<any>(null);
     const [userPartes, setUserPartes] = useState<any[]>([]);
@@ -55,27 +62,46 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
     const [parteSel, setParteSel] = useState<any>(null);
     const [mediaSeleccionado, setMediaSeleccionado] = useState<any>(null);
 
-    // --- CARGA DE ESTADÍSTICAS ---
+    // --- EFECTO: CARGA DE LISTA Y CÁLCULO MATEMÁTICO ---
     useEffect(() => {
         const token = localStorage.getItem("adminToken");
+        
         const loadStats = async () => {
             try {
-                const res = await fetch(`${API_URL}/api/callcenter/stats?fecha=${fecha}&turno=${turno}`, fetchOptions(token));
+                // 1. Solicitamos la LISTA COMPLETA de partes del día
+                const res = await fetch(`${API_URL}/api/partes?fecha=${fecha}`, fetchOptions(token));
+                
                 if (res.ok) {
                     const data = await res.json();
+                    const todosLosPartes = data.partes || []; 
+
+                    // 2. Filtramos en memoria por el TURNO seleccionado
+                    const partesDelTurno = todosLosPartes.filter((p: any) => 
+                        p.turno && p.turno.toUpperCase().includes(turno)
+                    );
+
+                    // 3. Sumamos manualmente cada zona
+                    const norteCount = partesDelTurno.filter((p: any) => p.zona && p.zona.toUpperCase().includes("NORTE")).length;
+                    const centroCount = partesDelTurno.filter((p: any) => p.zona && p.zona.toUpperCase().includes("CENTRO")).length;
+                    const surCount = partesDelTurno.filter((p: any) => p.zona && p.zona.toUpperCase().includes("SUR")).length;
+
+                    // 4. Actualizamos los contadores visuales
                     setCounts({
-                        Norte: data.Norte || 0,
-                        Centro: data.Centro || 0,
-                        Sur: data.Sur || 0,
-                        Total: data.Total || 0
+                        Norte: norteCount,
+                        Centro: centroCount,
+                        Sur: surCount,
+                        Total: partesDelTurno.length
                     });
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) { 
+                console.error("Error calculando estadísticas:", e); 
+            }
         };
+        
         loadStats();
     }, [fecha, turno]);
 
-    // --- RESTO DE FUNCIONES ---
+    // --- FUNCIONES DE INTERACCIÓN ---
     const openUsers = async () => {
         setShowModal(true); 
         setView('list');
@@ -149,7 +175,8 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
         setMediaSeleccionado(parteSel.todosArchivos[newIndex]);
     };
 
-    // --- ESTILOS ---
+    // --- ESTILOS INTERNOS (SOLUCIÓN A TUS ERRORES) ---
+    // Definimos los estilos aquí dentro para no tener problemas de exportación
     const styles: Record<string, React.CSSProperties> = {
         container: { padding: '40px 20px', background: '#f4f6f8', minHeight: '100vh', fontFamily: "'Segoe UI', sans-serif'" },
         card: { background: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', marginBottom: '30px' },
@@ -188,7 +215,6 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                 <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
                     <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={styles.input} />
                     
-                    {/* ✅ CAMBIO: SELECTOR SIMPLIFICADO */}
                     <select value={turno} onChange={e => setTurno(e.target.value)} style={styles.input}>
                         <option value="TURNO DIA">TURNO DIA</option>
                         <option value="TURNO NOCHE">TURNO NOCHE</option>
@@ -197,6 +223,7 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                     <button style={{ ...styles.btnNav, background: '#0f172a', color: 'white' }}>ZONAS</button>
                     <button onClick={() => navigate('/estadistica')} style={styles.btnNav}>MÉTRICAS (BI)</button>
                     <button onClick={openUsers} style={styles.btnNav}>USUARIOS</button>
+                    {/* Botón de descarga: Si no tienes este componente, comenta la siguiente línea */}
                     <DownloadWordButton fecha={fecha} turno={turno} />
                     <button onClick={onLogout} style={{ ...styles.btnNav, background: '#ef4444', color: 'white' }}>Salir</button>
                 </div>
