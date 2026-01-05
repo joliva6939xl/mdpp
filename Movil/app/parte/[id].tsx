@@ -9,6 +9,8 @@ import {
   Image,
   Linking,
   TouchableOpacity,
+  Pressable,
+  Alert,
   type ViewStyle,
   type TextStyle,
   type ImageStyle,
@@ -58,6 +60,7 @@ export default function DetalleParteScreen() {
   const { showAlert } = useAlert();
 
   const [loading, setLoading] = useState(true);
+  const [loadingCierre, setLoadingCierre] = useState(false);
   const [parte, setParte] = useState<any>(null);
 
   useEffect(() => {
@@ -89,6 +92,48 @@ export default function DetalleParteScreen() {
     }
   }, [id, showAlert]);
 
+  // --- FUNCIÓN PARA CERRAR PARTE ---
+  const handleCerrarParte = async () => {
+    Alert.alert(
+      "Confirmar Cierre",
+      "¿Estás seguro de finalizar este parte? Se registrará la hora actual.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { 
+          text: "SÍ, CERRAR", 
+          onPress: async () => {
+            try {
+              setLoadingCierre(true);
+              const session = await obtenerSesion();
+              const res = await fetch(`${API_URL}/partes/cerrar/${parte.id}`, {
+                method: 'PUT',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.token}`
+                },
+                body: JSON.stringify({}) 
+              });
+              
+              const data = await res.json();
+              
+              if (data.ok) {
+                setParte({ ...parte, hora_fin: data.parte.hora_fin });
+                Alert.alert("Éxito", "El parte ha sido cerrado correctamente.");
+              } else {
+                Alert.alert("Error", "No se pudo cerrar el parte.");
+              }
+            } catch (error) {
+              console.error(error);
+              Alert.alert("Error", "Fallo de conexión con el servidor.");
+            } finally {
+              setLoadingCierre(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const abrirMapa = () => {
     if (!parte?.latitud || !parte?.longitud) return;
     
@@ -103,7 +148,6 @@ export default function DetalleParteScreen() {
     
     const latLng = `${lat},${lng}`;
     
-    // URL corregida anteriormente
     const url = Platform.select({
       web: `https://www.google.com/maps?q=${lat},${lng}`, 
       ios: `${scheme}${label}@${latLng}`,
@@ -132,6 +176,7 @@ export default function DetalleParteScreen() {
   if (!parte) {
     return (
       <View style={styles.loadingContainer}>
+        {/* ✅ ERROR CORREGIDO: Usamos &quot; para escapar las comillas */}
         <Text style={styles.errorText}>No se encontró información para &quot;{id}&quot;.</Text>
       </View>
     );
@@ -231,25 +276,52 @@ export default function DetalleParteScreen() {
                 />
               </View>
             ))}
-            {(!parte.fotos || parte.fotos.length === 0) && (
+            {(!parte.fotos || parte.fotos.length === 0) && (!parte.videos || parte.videos.length === 0) && (
               <Text style={styles.noMediaText}>No hay imágenes adjuntas.</Text>
             )}
           </View>
 
-          {/* ✅ BOTÓN DE VIDEO MEJORADO */}
-          {parte.videos && parte.videos.length > 0 && (
-             <TouchableOpacity 
-               style={styles.videoButton} 
-               onPress={() => router.push(`/parte/multimedia/${id}`)}
-               activeOpacity={0.8}
-             >
-                <IconSymbol name="play.rectangle.fill" size={20} color="#fff" />
-                <Text style={styles.videoButtonText}>
-                  Ver Videos Adjuntos ({parte.videos.length})
-                </Text>
-             </TouchableOpacity>
-          )}
+          {/* BOTÓN DE GALERÍA (MANTENIDO) */}
+          <TouchableOpacity 
+            style={styles.galleryButton} 
+            onPress={() => router.push(`/parte/multimedia/${id}`)}
+            activeOpacity={0.8}
+          >
+            <IconSymbol name="photo.fill" size={20} color="#fff" />
+            <Text style={styles.galleryButtonText}>
+              Ver Galería (Fotos y Videos)
+            </Text>
+          </TouchableOpacity>
         </Section>
+
+        {/* ✅ BOTÓN DE CERRAR PARTE CON PRESSABLE */}
+        <View style={styles.closeSection}>
+          {parte.hora_fin ? (
+            <View style={styles.closedBadge}>
+              <Text style={styles.closedText}>
+                ✅ PARTE CERRADO A LAS {parte.hora_fin}
+              </Text>
+            </View>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [
+                styles.closeButton,
+                pressed && { opacity: 0.8 },
+              ]}
+              onPress={handleCerrarParte}
+              disabled={loadingCierre}
+            >
+              {loadingCierre ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <IconSymbol name="lock.fill" size={20} color="#fff" />
+                  <Text style={styles.closeButtonText}>CERRAR PARTE</Text>
+                </>
+              )}
+            </Pressable>
+          )}
+        </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -297,9 +369,14 @@ type Styles = {
   mediaImage: ImageStyle;
   noMediaText: TextStyle;
   
-  // Nuevos estilos para el botón de video
-  videoButton: ViewStyle;
-  videoButtonText: TextStyle;
+  galleryButton: ViewStyle;
+  galleryButtonText: TextStyle;
+
+  closeSection: ViewStyle;
+  closeButton: ViewStyle;
+  closeButtonText: TextStyle;
+  closedBadge: ViewStyle;
+  closedText: TextStyle;
 };
 
 const styles = StyleSheet.create<Styles>({
@@ -372,10 +449,9 @@ const styles = StyleSheet.create<Styles>({
   mediaImage: { width: 100, height: 100 }, 
   noMediaText: { fontSize: 12, color: "#94a3b8", fontStyle: "italic" },
   
-  // ✅ ESTILOS NUEVOS DEL BOTÓN VIDEO
-  videoButton: {
+  galleryButton: {
     marginTop: 16,
-    backgroundColor: "#0f172a", // Color oscuro para resaltar
+    backgroundColor: "#0ea5e9", // Azul vibrante
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 12,
@@ -389,10 +465,49 @@ const styles = StyleSheet.create<Styles>({
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
   },
-  videoButtonText: {
+  galleryButtonText: {
     color: "#fff",
     fontWeight: "800",
     fontSize: 14,
     letterSpacing: 0.5,
   },
+
+  closeSection: {
+    marginTop: 20,
+    marginBottom: 10,
+    paddingHorizontal: 10,
+  },
+  closeButton: {
+    backgroundColor: "#ef4444", // Rojo peligro
+    paddingVertical: 16,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  closeButtonText: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 15,
+    letterSpacing: 0.5,
+  },
+  closedBadge: {
+    backgroundColor: "#dcfce7", // Verde claro
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#22c55e",
+    alignItems: "center",
+  },
+  closedText: {
+    color: "#15803d",
+    fontWeight: "800",
+    fontSize: 14,
+  }
 });
