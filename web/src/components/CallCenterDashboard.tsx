@@ -6,7 +6,6 @@ import { DownloadWordButton } from "./DownloadWordButton";
 const API_URL = "http://localhost:4000";
 
 // --- UTILIDADES ---
-// Obtiene la fecha local en formato YYYY-MM-DD (sin problemas de zona horaria)
 const getLocalToday = () => {
     const now = new Date();
     const year = now.getFullYear();
@@ -20,6 +19,25 @@ const cleanFileName = (rawPath: any) => {
     const pathString = typeof rawPath === 'string' ? rawPath : (rawPath.ruta || rawPath.path || "");
     return pathString.split(/[\\/]/).pop() || null;
 };
+
+// Convierte "YYYY-MM-DDTHH:mm..." a "YYYY-MM-DD" para comparar fechas
+const normalizeDate = (dateStr: string) => {
+    if (!dateStr) return "";
+    return dateStr.split('T')[0]; // Se queda solo con la parte de la fecha
+};
+
+// Convierte hora "HH:MM" a minutos totales para comparar rangos matemáticos
+const getMinutes = (horaStr: string) => {
+    if (!horaStr) return -1;
+    const [hh, mm] = horaStr.split(':').map(Number);
+    return hh * 60 + mm;
+};
+
+// Rango DÍA: 06:01 (361 min) a 18:00 (1080 min)
+const isRangoDia = (mins: number) => mins >= 361 && mins <= 1080;
+
+// Rango NOCHE: 18:01 (1081 min) a 23:59 O 00:00 a 06:00 (360 min)
+const isRangoNoche = (mins: number) => (mins >= 1081) || (mins >= 0 && mins <= 360);
 
 const fetchOptions = () => ({
     method: 'GET',
@@ -40,11 +58,11 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
 
     // --- ESTADOS ---
     const [fecha, setFecha] = useState<string>(getLocalToday());
-    const [turnoSel, setTurnoSel] = useState<string>("TURNO DIA"); // Valor por defecto
+    const [turnoSel, setTurnoSel] = useState<string>("TURNO DIA");
     const [dataZonal, setDataZonal] = useState<any>({ Norte: [], Centro: [], Sur: [], Total: 0 });
     const [loading, setLoading] = useState(false);
 
-    // GESTIÓN
+    // GESTIÓN MODALES
     const [showModal, setShowModal] = useState(false);
     const [showMediaModal, setShowMediaModal] = useState(false);
     const [view, setView] = useState<'list' | 'detail'>('list');
@@ -55,36 +73,48 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
     const [parteSel, setParteSel] = useState<any>(null);
     const [mediaSeleccionado, setMediaSeleccionado] = useState<any>(null);
 
-    // --- LÓGICA DE CARGA DINÁMICA ---
+    // --- LÓGICA PRINCIPAL DE FILTRADO ---
     useEffect(() => {
         let isMounted = true;
         const load = async () => {
             setLoading(true);
             try {
-                // 1. Pedimos al Backend TODO lo de la fecha seleccionada
+                // Pedimos al API los datos (aunque el API filtre, reforzamos en frontend)
                 const res = await fetch(`${API_URL}/api/partes?fecha=${fecha}`, fetchOptions());
                 const data = await res.json();
                 
                 if (isMounted && data.ok) {
                     const lista = data.partes || [];
                     
-                    // 2. FILTRO INTELIGENTE DE TURNO
+                    // 🔍 FILTRO TRIPLE: FECHA + ETIQUETA + HORA
                     const filtrados = lista.filter((p: any) => {
-                        // Normalizamos: mayúsculas, sin tildes, sin espacios
-                        const t = (p.turno || "").toUpperCase()
-                            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Quita tildes (DÍA -> DIA)
-                            .replace(/\s+/g, ''); // Quita espacios
+                        // 1. VALIDAR FECHA EXACTA (Del Calendario)
+                        if (normalizeDate(p.fecha) !== fecha) return false;
 
+                        // 2. PREPARAR DATOS DE TIEMPO Y TEXTO
+                        if (!p.hora) return false; 
+                        const mins = getMinutes(p.hora);
+                        const textoTurno = (p.turno || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+                        // 3. VALIDAR TURNO (DOBLE FACTOR)
                         if (turnoSel === "TURNO DIA") {
-                            // Acepta: "DIA", "MAÑANA", "TARDE", "06:00", "06AM"
-                            return t.includes("DIA") || t.includes("MANANA") || t.includes("TARDE") || t.includes("06");
+                            // FACTOR A: Texto dice "DIA" o "MAÑANA"
+                            const diceDia = textoTurno.includes("DIA") || textoTurno.includes("MANANA");
+                            // FACTOR B: Hora entre 06:01 y 18:00
+                            const esHoraDia = isRangoDia(mins);
+                            
+                            return diceDia && esHoraDia;
                         } else {
-                            // Acepta: "NOCHE", "18:00", "18PM"
-                            return t.includes("NOCHE") || t.includes("18");
+                            // FACTOR A: Texto dice "NOCHE"
+                            const diceNoche = textoTurno.includes("NOCHE");
+                            // FACTOR B: Hora entre 18:01 y 06:00
+                            const esHoraNoche = isRangoNoche(mins);
+                            
+                            return diceNoche && esHoraNoche;
                         }
                     });
 
-                    // 3. CLASIFICACIÓN ZONAL
+                    // 4. CLASIFICACIÓN ZONAL
                     const getZ = (p: any) => (p.zona || "").toLowerCase().trim();
                     
                     setDataZonal({
@@ -99,7 +129,7 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
         
         load();
         return () => { isMounted = false; };
-    }, [fecha, turnoSel]); // ✅ SE EJECUTA AL CAMBIAR FECHA O TURNO
+    }, [fecha, turnoSel]);
 
     const renderMapeo = (lista: any[]) => {
         if (lista.length === 0) return <div style={{textAlign:'center', color:'#94a3b8', marginTop:20, fontSize:12}}>∅ Sin registros</div>;
@@ -145,12 +175,12 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                 </div>
 
                 <div style={styles.card}>
+                    {/* INPUT FECHA: ESTE VALOR FILTRA ESTRICTAMENTE POR DÍA */}
                     <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ccc'}} />
                     
-                    {/* ✅ SELECT DE TURNO DINÁMICO */}
                     <select value={turnoSel} onChange={e=>setTurnoSel(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ccc'}}>
-                        <option value="TURNO DIA">TURNO DÍA (06:00 - 18:00)</option>
-                        <option value="TURNO NOCHE">TURNO NOCHE (18:00 - 06:00)</option>
+                        <option value="TURNO DIA">TURNO DÍA (06:01 - 18:00)</option>
+                        <option value="TURNO NOCHE">TURNO NOCHE (18:01 - 06:00)</option>
                     </select>
 
                     <button onClick={() => navigate('/estadistica')} style={styles.btnNav}>MÉTRICAS</button>
@@ -179,8 +209,7 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                 </div>
             </div>
 
-            {/* MODALES Y PANELES (MANTENIDOS IGUAL) */}
-            {/* PANEL DETALLE */}
+            {/* PANEL DETALLE (SIN CAMBIOS) */}
             {parteSel && !showModal && (
                 <div style={{width:420, background:'white', padding:25, borderRadius:12, boxShadow:'-5px 0 20px rgba(0,0,0,0.05)', overflowY:'auto', borderLeft:'1px solid #eee'}}>
                     <button onClick={()=>setParteSel(null)} style={{float:'right', border:'none', background:'none', fontSize:20, cursor:'pointer', color:'#94a3b8'}}>✕</button>
@@ -213,7 +242,7 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                 </div>
             )}
 
-            {/* MODAL USUARIOS */}
+            {/* MODALES USUARIOS / MULTIMEDIA (SIN CAMBIOS) */}
             {showModal && (
                 <div style={styles.overlay}>
                     <div style={styles.modal}>
@@ -279,7 +308,6 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                 </div>
             )}
 
-            {/* MODAL MULTIMEDIA FULLSCREEN */}
             {showMediaModal && mediaSeleccionado && (
                 <div style={{...styles.overlay, zIndex:10000, background:'rgba(0,0,0,0.95)'}}>
                     <button onClick={()=>setShowMediaModal(false)} style={{position:'absolute', top:20, right:20, fontSize:40, color:'white', background:'none', border:'none', cursor:'pointer'}}>✕</button>
