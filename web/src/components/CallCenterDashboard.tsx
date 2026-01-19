@@ -20,29 +20,164 @@ const cleanFileName = (rawPath: any) => {
     return pathString.split(/[\\/]/).pop() || null;
 };
 
-// Convierte "YYYY-MM-DDTHH:mm..." a "YYYY-MM-DD" para comparar fechas
 const normalizeDate = (dateStr: string) => {
     if (!dateStr) return "";
-    return dateStr.split('T')[0]; // Se queda solo con la parte de la fecha
+    return dateStr.split('T')[0];
 };
 
-// Convierte hora "HH:MM" a minutos totales para comparar rangos matemáticos
 const getMinutes = (horaStr: string) => {
     if (!horaStr) return -1;
     const [hh, mm] = horaStr.split(':').map(Number);
     return hh * 60 + mm;
 };
 
-// Rango DÍA: 06:01 (361 min) a 18:00 (1080 min)
 const isRangoDia = (mins: number) => mins >= 361 && mins <= 1080;
-
-// Rango NOCHE: 18:01 (1081 min) a 23:59 O 00:00 a 06:00 (360 min)
 const isRangoNoche = (mins: number) => (mins >= 1081) || (mins >= 0 && mins <= 360);
 
 const fetchOptions = () => ({
     method: 'GET',
     headers: { 'Content-Type': 'application/json' }
 });
+
+// ✅ COMPONENTE VISUAL DE DETALLE (HOOKS SIEMPRE AL INICIO)
+const ParteDetalleView = ({ parte, onClose, onOpenMedia }: { parte: any, onClose?: () => void, onOpenMedia: (m:any) => void }) => {
+    
+    // 1. ADAPTADOR DE MULTIMEDIA (HOOK)
+    const evidencias = useMemo(() => {
+        if (!parte) return [];
+
+        const lista: any[] = [];
+        
+        // Procesar Fotos
+        if (Array.isArray(parte.fotos)) {
+            parte.fotos.forEach((ruta: string) => {
+                const url = ruta.startsWith('http') ? ruta : `${API_URL}/uploads/${ruta}`;
+                lista.push({ url, tipo: 'foto' });
+            });
+        }
+
+        // Procesar Videos
+        if (Array.isArray(parte.videos)) {
+            parte.videos.forEach((ruta: string) => {
+                const url = ruta.startsWith('http') ? ruta : `${API_URL}/uploads/${ruta}`;
+                lista.push({ url, tipo: 'video' });
+            });
+        }
+
+        // Soporte Legacy
+        if (parte.todosArchivos && lista.length === 0) {
+            return parte.todosArchivos;
+        }
+
+        return lista;
+    }, [parte]);
+
+    // 2. RETORNO TEMPRANO
+    if (!parte) return null;
+
+    const s = {
+        sectionTitle: { fontSize: '12px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginTop: '15px', marginBottom: '8px', borderBottom: '1px solid #f1f5f9', paddingBottom: '4px' },
+        row: { display: 'grid', gridTemplateColumns: '110px 1fr', gap: '8px', marginBottom: '4px', fontSize: '13px' },
+        label: { fontWeight: 700, color: '#64748b' },
+        value: { color: '#0f172a' },
+        gpsBtn: { display: 'inline-block', background: '#ecfdf5', color: '#059669', padding: '2px 6px', borderRadius: '4px', textDecoration: 'none', fontSize: '11px', fontWeight: 'bold', border: '1px solid #10b981' }
+    };
+
+    const renderParticipantes = () => {
+        let parts = [];
+        try {
+            if (Array.isArray(parte.participantes)) parts = parte.participantes;
+            else if (typeof parte.participantes === 'string') parts = JSON.parse(parte.participantes);
+        } catch { parts = []; }
+
+        if (!parts || parts.length === 0) return <span style={{color:'#cbd5e1', fontStyle:'italic', fontSize:'12px'}}>Sin participantes registrados</span>;
+
+        return (
+            <div style={{display:'flex', flexWrap:'wrap', gap:'5px'}}>
+                {parts.map((p: any, i: number) => (
+                    <span key={i} style={{background:'#f1f5f9', padding:'3px 8px', borderRadius:'12px', fontSize:'11px', color:'#475569', border:'1px solid #e2e8f0'}}>
+                        👤 {p.nombre} {p.dni ? `(DNI: ${p.dni})` : ''}
+                    </span>
+                ))}
+            </div>
+        );
+    };
+
+    return (
+        <div style={{background:'white', height:'100%', display:'flex', flexDirection:'column', overflow: 'hidden'}}>
+            {/* Encabezado fijo */}
+            {onClose && (
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10, paddingBottom:10, borderBottom:'2px solid #f1f5f9', flexShrink: 0}}>
+                    <div>
+                        <h2 style={{margin:0, color:'#1e293b', fontSize:'18px'}}>Parte #{parte.id}</h2>
+                        <span style={{fontSize:'11px', color:'#64748b'}}>REGISTRADO: {parte.fecha} | {parte.hora}</span>
+                    </div>
+                    <button onClick={onClose} style={{border:'none', background:'#f1f5f9', width:30, height:30, borderRadius:15, fontSize:16, cursor:'pointer', color:'#64748b', display:'flex', alignItems:'center', justifyContent:'center'}}>✕</button>
+                </div>
+            )}
+
+            {/* ZONA DE SCROLL ACTIVA */}
+            <div style={{
+                flex: 1, 
+                overflowY: 'auto', // Scroll forzado
+                paddingRight: '10px'
+            }}>
+                
+                <div style={s.sectionTitle}>1. INFORMACIÓN GENERAL</div>
+                <div style={s.row}><span style={s.label}>N° Físico:</span><span style={s.value}>{parte.parte_fisico || '---'}</span></div>
+                <div style={s.row}><span style={s.label}>Turno:</span><span style={s.value}>{parte.turno}</span></div>
+                <div style={s.row}><span style={s.label}>Sector / Zona:</span><span style={s.value}>Sector {parte.sector} - {parte.zona}</span></div>
+                <div style={s.row}><span style={s.label}>Lugar:</span><span style={s.value}>{parte.lugar}</span></div>
+                
+                {parte.latitud && parte.longitud && (
+                    <div style={s.row}>
+                        <span style={s.label}>Ubicación:</span>
+                        <span>
+                            <a href={`https://www.google.com/maps/search/?api=1&query=${parte.latitud},${parte.longitud}`} target="_blank" rel="noreferrer" style={s.gpsBtn}>
+                                📍 VER EN MAPA ({parte.latitud}, {parte.longitud})
+                            </a>
+                        </span>
+                    </div>
+                )}
+
+                <div style={s.sectionTitle}>2. UNIDAD Y PERSONAL</div>
+                <div style={s.row}><span style={s.label}>Unidad:</span><span style={s.value}>{parte.unidad_tipo} {parte.unidad_numero}</span></div>
+                <div style={s.row}><span style={s.label}>Placa:</span><span style={s.value}>{parte.placa || '---'}</span></div>
+                <div style={s.row}><span style={s.label}>Conductor:</span><span style={s.value}>{parte.conductor}</span></div>
+                <div style={s.row}><span style={s.label}>DNI Conductor:</span><span style={s.value}>{parte.dni_conductor || '---'}</span></div>
+                <div style={s.row}><span style={s.label}>Sup. Zonal:</span><span style={s.value}>{parte.supervisor_zonal || '---'}</span></div>
+                <div style={s.row}><span style={s.label}>Sup. General:</span><span style={s.value}>{parte.supervisor_general || '---'}</span></div>
+
+                <div style={s.sectionTitle}>3. DETALLE DEL HECHO</div>
+                <div style={s.row}><span style={s.label}>Tipo (Sumilla):</span><span style={{...s.value, fontWeight:'bold', color:'#2563eb'}}>{parte.sumilla}</span></div>
+                <div style={s.row}><span style={s.label}>Origen:</span><span style={s.value}>{parte.asunto || '---'}</span></div>
+                
+                <div style={{marginTop:'8px', background:'#fffbeb', padding:'12px', borderRadius:'8px', borderLeft:'4px solid #f59e0b'}}>
+                    <div style={{fontSize:'10px', fontWeight:'900', color:'#b45309', marginBottom:'4px', letterSpacing:'1px'}}>OCURRENCIA:</div>
+                    <p style={{margin:0, fontSize:'13px', lineHeight:'1.5', color:'#451a03', whiteSpace:'pre-wrap', fontFamily:'monospace'}}>{parte.ocurrencia}</p>
+                </div>
+
+                <div style={s.sectionTitle}>4. INTERVENIDOS / PARTICIPANTES</div>
+                {renderParticipantes()}
+
+                <div style={s.sectionTitle}>5. EVIDENCIAS ({evidencias.length})</div>
+                <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'8px', marginTop:'10px'}}>
+                    {evidencias.length > 0 ? evidencias.map((m:any, i:number) => (
+                        <div key={i} onClick={() => onOpenMedia(m)} style={{aspectRatio:'1/1', background:'#000', borderRadius:'8px', overflow:'hidden', cursor:'pointer', position:'relative', border:'1px solid #e2e8f0', boxShadow:'0 2px 4px rgba(0,0,0,0.1)'}}>
+                            {m.tipo === 'video' ? 
+                                <video src={m.url} style={{width:'100%', height:'100%', objectFit:'cover', opacity:0.8}} /> :
+                                <img src={m.url} style={{width:'100%', height:'100%', objectFit:'cover'}} />
+                            }
+                            {m.tipo === 'video' && <div style={{position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', color:'white', background:'rgba(0,0,0,0.3)', fontSize:'24px'}}>▶</div>}
+                        </div>
+                    )) : <div style={{gridColumn:'1/-1', fontSize:'12px', color:'#94a3b8', textAlign:'center', padding:'15px', background:'#f8fafc', borderRadius:'6px'}}>📸 No hay evidencias adjuntas.</div>}
+                </div>
+                
+                <div style={{height: 50}}></div>
+            </div>
+        </div>
+    );
+};
 
 interface CallCenterDashboardProps {
     userName?: string;
@@ -55,14 +190,11 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
     userName, onLogout, internoNombre, internoRoperoTurno 
 }) => {
     const navigate = useNavigate();
-
-    // --- ESTADOS ---
     const [fecha, setFecha] = useState<string>(getLocalToday());
     const [turnoSel, setTurnoSel] = useState<string>("TURNO DIA");
     const [dataZonal, setDataZonal] = useState<any>({ Norte: [], Centro: [], Sur: [], Total: 0 });
     const [loading, setLoading] = useState(false);
 
-    // GESTIÓN MODALES
     const [showModal, setShowModal] = useState(false);
     const [showMediaModal, setShowMediaModal] = useState(false);
     const [view, setView] = useState<'list' | 'detail'>('list');
@@ -73,50 +205,37 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
     const [parteSel, setParteSel] = useState<any>(null);
     const [mediaSeleccionado, setMediaSeleccionado] = useState<any>(null);
 
-    // --- LÓGICA PRINCIPAL DE FILTRADO ---
+    // --- CARGA DE DATOS ---
     useEffect(() => {
+        // ✅ LIMPIEZA AUTOMÁTICA: Si cambias fecha o turno, se cierra el detalle
+        setParteSel(null);
+
         let isMounted = true;
         const load = async () => {
             setLoading(true);
             try {
-                // Pedimos al API los datos (aunque el API filtre, reforzamos en frontend)
                 const res = await fetch(`${API_URL}/api/partes?fecha=${fecha}`, fetchOptions());
                 const data = await res.json();
                 
                 if (isMounted && data.ok) {
                     const lista = data.partes || [];
-                    
-                    // 🔍 FILTRO TRIPLE: FECHA + ETIQUETA + HORA
                     const filtrados = lista.filter((p: any) => {
-                        // 1. VALIDAR FECHA EXACTA (Del Calendario)
                         if (normalizeDate(p.fecha) !== fecha) return false;
-
-                        // 2. PREPARAR DATOS DE TIEMPO Y TEXTO
                         if (!p.hora) return false; 
                         const mins = getMinutes(p.hora);
                         const textoTurno = (p.turno || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-                        // 3. VALIDAR TURNO (DOBLE FACTOR)
                         if (turnoSel === "TURNO DIA") {
-                            // FACTOR A: Texto dice "DIA" o "MAÑANA"
                             const diceDia = textoTurno.includes("DIA") || textoTurno.includes("MANANA");
-                            // FACTOR B: Hora entre 06:01 y 18:00
                             const esHoraDia = isRangoDia(mins);
-                            
                             return diceDia && esHoraDia;
                         } else {
-                            // FACTOR A: Texto dice "NOCHE"
                             const diceNoche = textoTurno.includes("NOCHE");
-                            // FACTOR B: Hora entre 18:01 y 06:00
                             const esHoraNoche = isRangoNoche(mins);
-                            
                             return diceNoche && esHoraNoche;
                         }
                     });
-
-                    // 4. CLASIFICACIÓN ZONAL
                     const getZ = (p: any) => (p.zona || "").toLowerCase().trim();
-                    
                     setDataZonal({
                         Norte: filtrados.filter((p: any) => getZ(p).includes("norte")),
                         Centro: filtrados.filter((p: any) => getZ(p).includes("centro")),
@@ -124,9 +243,8 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                         Total: filtrados.length
                     });
                 }
-            } catch (e) { console.error(e); } finally { if(isMounted) setLoading(false); }
+            } catch { /* Error silencioso */ } finally { if(isMounted) setLoading(false); }
         };
-        
         load();
         return () => { isMounted = false; };
     }, [fecha, turnoSel]);
@@ -150,11 +268,30 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
         );
     };
 
-    // --- FUNCIONES GESTIÓN ---
     const openUsers = async () => { setShowModal(true); setView('list'); const r = await fetch(`${API_URL}/api/usuarios`, fetchOptions()); if(r.ok) setUsuarios(await r.json()); };
     const selectUser = async (u:any) => { setUserSel(u); setView('detail'); setActiveTab('cv'); setParteSel(null); const r = await fetch(`${API_URL}/api/usuarios/${u.id}/partes`, fetchOptions()); if(r.ok) { const d=await r.json(); setUserPartes(d.partes||[]); } };
-    const handleSelectParte = async (id: number) => { try { const r = await fetch(`${API_URL}/api/partes/${id}`, fetchOptions()); const d = await r.json(); if(d.ok) setParteSel(d.parte || d.data); } catch(e) { console.error(e); } };
-    const navegarGaleria = (dir: 'prev'|'next') => { if(!parteSel?.todosArchivos?.length) return; const idx = parteSel.todosArchivos.findIndex((m:any) => m.url === mediaSeleccionado?.url); const nxt = dir==='next' ? (idx+1)%parteSel.todosArchivos.length : (idx-1+parteSel.todosArchivos.length)%parteSel.todosArchivos.length; setMediaSeleccionado(parteSel.todosArchivos[nxt]); };
+    
+    // ✅ FUNCIÓN INTERRUPTOR (TOGGLE)
+    const handleSelectParte = async (id: number) => { 
+        try { 
+            // Si el parte ya está abierto, lo cerramos
+            if (parteSel && parteSel.id === id) {
+                setParteSel(null);
+                return;
+            }
+
+            const r = await fetch(`${API_URL}/api/partes/${id}`, fetchOptions()); 
+            const d = await r.json(); 
+            if(d.ok) setParteSel(d.parte || d.data); 
+        } catch { /* Error */ } 
+    };
+
+    const navegarGaleria = (dir: 'prev'|'next') => { 
+        if(!parteSel?.todosArchivos?.length) return; 
+        const idx = parteSel.todosArchivos.findIndex((m:any) => m.url === mediaSeleccionado?.url); 
+        const nxt = dir==='next' ? (idx+1)%parteSel.todosArchivos.length : (idx-1+parteSel.todosArchivos.length)%parteSel.todosArchivos.length; 
+        setMediaSeleccionado(parteSel.todosArchivos[nxt]); 
+    };
     const fotoPerfilUrl = useMemo(() => userSel?.foto_ruta ? `${API_URL}/uploads/usuarios/${cleanFileName(userSel.foto_ruta)}` : null, [userSel]);
 
     const styles: Record<string, React.CSSProperties> = {
@@ -167,7 +304,15 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
     };
 
     return (
-        <div style={styles.container}>
+        <div 
+            style={styles.container}
+            // ✅ EVENTO: Clic en el fondo gris cierra el panel
+            onMouseDown={(e) => {
+                if (e.target === e.currentTarget) {
+                    setParteSel(null);
+                }
+            }}
+        >
             <div style={{flex:1}}>
                 <div style={{display:'flex', justifyContent:'space-between', marginBottom:20}}>
                     <h1 style={{margin:0, fontSize:24}}>Panel Call Center – <span style={{color:'#3b82f6'}}>{userName}</span></h1>
@@ -175,14 +320,11 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                 </div>
 
                 <div style={styles.card}>
-                    {/* INPUT FECHA: ESTE VALOR FILTRA ESTRICTAMENTE POR DÍA */}
                     <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ccc'}} />
-                    
                     <select value={turnoSel} onChange={e=>setTurnoSel(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ccc'}}>
                         <option value="TURNO DIA">TURNO DÍA (06:01 - 18:00)</option>
                         <option value="TURNO NOCHE">TURNO NOCHE (18:01 - 06:00)</option>
                     </select>
-
                     <button onClick={() => navigate('/estadistica')} style={styles.btnNav}>MÉTRICAS</button>
                     <button onClick={openUsers} style={styles.btnNav}>USUARIOS</button>
                     <DownloadWordButton fecha={fecha} turno={turnoSel} />
@@ -209,40 +351,35 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                 </div>
             </div>
 
-            {/* PANEL DETALLE (SIN CAMBIOS) */}
-            {parteSel && !showModal && (
-                <div style={{width:420, background:'white', padding:25, borderRadius:12, boxShadow:'-5px 0 20px rgba(0,0,0,0.05)', overflowY:'auto', borderLeft:'1px solid #eee'}}>
-                    <button onClick={()=>setParteSel(null)} style={{float:'right', border:'none', background:'none', fontSize:20, cursor:'pointer', color:'#94a3b8'}}>✕</button>
-                    <h2 style={{marginTop:0, color:'#1e293b'}}>Parte #{parteSel.id}</h2>
-                    <div style={{fontSize:13, color:'#334155'}}>
-                        <div style={{background:'#f8fafc', padding:15, borderRadius:8, marginBottom:15}}>
-                            <h4 style={{margin:'0 0 10px 0', color:'#475569'}}>PERSONAL</h4>
-                            <p style={{margin:'5px 0'}}><b>Conductor:</b> {parteSel.conductor || "---"}</p>
-                            <p style={{margin:'5px 0'}}><b>Sup. Zonal:</b> {parteSel.supervisor_zonal || "---"}</p>
-                            <p style={{margin:'5px 0'}}><b>Sup. General:</b> {parteSel.supervisor_general || "---"}</p>
-                        </div>
-                        <p><b>Lugar:</b> {parteSel.lugar}</p>
-                        <p><b>Sumilla:</b> {parteSel.sumilla}</p>
-                        <p style={{background:'#fffbeb', padding:10, borderRadius:6, border:'1px solid #fcd34d'}}>
-                            <b>Ocurrencia:</b><br/>{parteSel.ocurrencia}
-                        </p>
-                        <h4 style={{marginTop:20, marginBottom:10}}>Evidencias ({parteSel.todosArchivos?.length || 0})</h4>
-                        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
-                            {parteSel.todosArchivos?.length > 0 ? parteSel.todosArchivos.map((m:any, i:number) => (
-                                <div key={i} onClick={()=>{setMediaSeleccionado(m); setShowMediaModal(true);}} style={{cursor:'pointer', position:'relative'}}>
-                                    {m.tipo==='video' ? 
-                                        <video src={m.url} style={{width:'100%', aspectRatio:'1/1', objectFit:'cover', borderRadius:8, background:'#000'}} /> : 
-                                        <img src={m.url} style={{width:'100%', aspectRatio:'1/1', objectFit:'cover', borderRadius:8}} />
-                                    }
-                                    {m.tipo==='video' && <div style={{position:'absolute', top:'50%', left:'50%', transform:'translate(-50%, -50%)', color:'white', fontSize:24}}>▶</div>}
-                                </div>
-                            )) : <p style={{gridColumn:'span 2', textAlign:'center', color:'#cbd5e1'}}>Sin evidencias.</p>}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* MODALES USUARIOS / MULTIMEDIA (SIN CAMBIOS) */}
+            {/* PANEL LATERAL DE DETALLE */}
+{/*
+{parteSel && !showModal && (
+    <div style={{
+        width: 450, 
+        background: 'white', 
+        padding: 25, 
+        borderRadius: 12, 
+        boxShadow: '-5px 0 20px rgba(0,0,0,0.05)', 
+        borderLeft: '1px solid #eee', 
+        display: 'flex', 
+        flexDirection: 'column',
+        position: 'sticky',
+        top: 20, 
+        height: 'calc(100vh - 40px)', // Altura fija
+        overflow: 'hidden' 
+    }}>
+        <ParteDetalleView 
+            parte={parteSel} 
+            onClose={() => setParteSel(null)}
+            onOpenMedia={(m) => { 
+                setMediaSeleccionado(m); 
+                setShowMediaModal(true); 
+            }} 
+        />
+    </div>
+)}
+*/}
+            {/* MODAL USUARIOS */}
             {showModal && (
                 <div style={styles.overlay}>
                     <div style={styles.modal}>
@@ -288,15 +425,21 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                                                     </div>
                                                 ))}
                                             </div>
-                                            <div style={{flex:1, padding:30, overflowY:'auto'}}>
+                                            {/* ZONA SCROLL EN MODAL */}
+                                            <div style={{
+                                                flex: 1, 
+                                                padding: 30, 
+                                                overflow: 'hidden', 
+                                                display: 'flex', 
+                                                flexDirection: 'column',
+                                                height: '65vh'
+                                            }}>
                                                 {parteSel ? (
-                                                    <div>
-                                                        <h2>{parteSel.sumilla}</h2>
-                                                        <p>{parteSel.ocurrencia}</p>
-                                                        {parteSel.todosArchivos?.length > 0 && (
-                                                            <button onClick={()=>{setMediaSeleccionado(parteSel.todosArchivos[0]); setShowMediaModal(true);}} style={{marginTop:20, padding:'10px 20px', background:'#3b82f6', color:'white', border:'none', borderRadius:6, cursor:'pointer'}}>Ver Galería ({parteSel.todosArchivos.length})</button>
-                                                        )}
-                                                    </div>
+                                                    <ParteDetalleView 
+                                                        parte={parteSel} 
+                                                        onClose={undefined} 
+                                                        onOpenMedia={(m) => { setMediaSeleccionado(m); setShowMediaModal(true); }} 
+                                                    />
                                                 ) : <p style={{color:'#94a3b8', textAlign:'center', marginTop:50}}>Seleccione un parte de la lista izquierda</p>}
                                             </div>
                                         </div>
