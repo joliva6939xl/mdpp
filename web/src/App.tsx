@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
 import Profile from "./pages/Profile";
-import Estadistica from "./pages/Estadistica";
+import EstadisticaScreen from "./components/EstadisticaScreen";
 import Count from "./pages/Count"; // ✅ NUEVO
 
 function App() {
@@ -10,7 +10,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/perfil" element={<Profile />} />
-        <Route path="/estadistica" element={<Estadistica />} />
+        + <Route path="/estadistica" element={<EstadisticaScreen />} />
 
         {/* ✅ NUEVO */}
         <Route path="/count" element={<Count />} />

@@ -4,7 +4,7 @@ const path = require("path");
 const db = require("../config/db");
 
 const pool = db.pool || db;
-
+const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType } = require("docx");
 // CREAR PARTE VIRTUAL
 const crearParte = async (req, res) => {
   console.log("📥 Creando Parte Virtual...");
@@ -262,6 +262,175 @@ const obtenerEstadisticasCallCenter = async (req, res) => {
       res.status(500).json({ ok: false, error: error.message });
     }
   };
+// OBTENER MÉTRICAS GLOBALES POR ZONA (NORTE, CENTRO, SUR)
+const obtenerMetricasZonales = async (req, res) => {
+  try {
+    const client = await pool.connect();
+    // Traemos solo la columna zona de todos los partes
+    const result = await client.query("SELECT zona FROM partes_virtuales");
+    client.release();
+
+    const stats = {
+      Norte: 0,
+      Centro: 0,
+      Sur: 0,
+      Total: 0
+    };
+
+    // Clasificación estricta en las 3 zonas
+    result.rows.forEach(row => {
+      const z = (row.zona || "").toUpperCase().trim();
+      
+      if (z.includes("NORTE")) {
+        stats.Norte++;
+      } else if (z.includes("CENTRO")) {
+        stats.Centro++;
+      } else if (z.includes("SUR")) {
+        stats.Sur++;
+      }
+      // Si hay zonas mal escritas o vacías, no se suman a ninguna específica,
+      // pero podríamos sumarlas al Total si quisieras. 
+      // Aquí sumamos al total solo lo clasificado:
+    });
+
+    stats.Total = stats.Norte + stats.Centro + stats.Sur;
+
+    res.json({ ok: true, stats });
+
+  } catch (error) {
+    console.error("❌ Error en métricas:", error);
+    res.status(500).json({ ok: false, message: "Error al obtener métricas" });
+  }
+
+};
+
+const descargarReporteConteo = async (req, res) => {
+    const { fecha, turno } = req.query; // Recibimos fecha (YYYY-MM-DD) y turno
+
+    try {
+        const client = await pool.connect();
+        
+        // 1. Consulta SQL filtrada por FECHA y TURNO
+        // Usamos ILIKE para que el turno coincida aunque sea mayus/minus
+        const query = `
+            SELECT zona, sumilla 
+            FROM partes_virtuales 
+            WHERE fecha::text = $1 
+            AND turno ILIKE $2
+        `;
+        
+        // Ajustamos el filtro de turno para que sea flexible (ej: '%NOCHE%')
+        const turnoFiltro = `%${turno.replace("TURNO ", "").trim()}%`;
+        
+        const result = await client.query(query, [fecha, turnoFiltro]);
+        client.release();
+
+        const registros = result.rows;
+
+        // 2. Procesar los datos (Agrupar por Zona)
+        const zonas = { "NORTE": [], "CENTRO": [], "SUR": [] };
+        
+        registros.forEach(r => {
+            const z = (r.zona || "").toUpperCase();
+            if (z.includes("NORTE")) zonas["NORTE"].push(r.sumilla);
+            else if (z.includes("CENTRO")) zonas["CENTRO"].push(r.sumilla);
+            else if (z.includes("SUR")) zonas["SUR"].push(r.sumilla);
+        });
+
+        // 3. Crear el Documento Word (docx)
+        const doc = new Document({
+            sections: [{
+                properties: {},
+                children: [
+                    new Paragraph({
+                        text: `REPORTE DE CONTEO - ${turno.toUpperCase()}`,
+                        heading: "Heading1",
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 300 }
+                    }),
+                    new Paragraph({
+                        text: `Fecha: ${fecha}`,
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 500 }
+                    }),
+                    
+                    // --- SECCIÓN NORTE ---
+                    crearSeccionZona("ZONA NORTE", zonas["NORTE"]),
+                    new Paragraph({ text: "", spacing: { after: 300 } }), // Espacio
+
+                    // --- SECCIÓN CENTRO ---
+                    crearSeccionZona("ZONA CENTRO", zonas["CENTRO"]),
+                    new Paragraph({ text: "", spacing: { after: 300 } }), // Espacio
+
+                    // --- SECCIÓN SUR ---
+                    crearSeccionZona("ZONA SUR", zonas["SUR"]),
+                ],
+            }],
+        });
+
+        // 4. Generar Buffer y enviar
+        const buffer = await Packer.toBuffer(doc);
+        
+        res.setHeader("Content-Disposition", `attachment; filename=Conteo_${fecha}_${turno}.docx`);
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        res.send(buffer);
+
+    } catch (error) {
+        console.error("❌ Error generando Word:", error);
+        res.status(500).json({ ok: false, message: "Error al generar reporte" });
+    }
+};
+
+// Helper para crear la tabla de cada zona en el Word
+function crearSeccionZona(titulo, listaSumillas) {
+    const conteo = {};
+    listaSumillas.forEach(s => {
+        const nombre = s || "SIN ESPECIFICAR";
+        conteo[nombre] = (conteo[nombre] || 0) + 1;
+    });
+
+    const total = listaSumillas.length;
+    
+    // Filas de la tabla
+    const rows = [
+        new TableRow({
+            children: [
+                new TableCell({ children: [new Paragraph({ text: "INCIDENCIA", bold: true })], width: { size: 70, type: WidthType.PERCENTAGE } }),
+                new TableCell({ children: [new Paragraph({ text: "CANTIDAD", bold: true, alignment: AlignmentType.CENTER })], width: { size: 30, type: WidthType.PERCENTAGE } }),
+            ],
+        })
+    ];
+
+    if (total === 0) {
+        rows.push(new TableRow({
+            children: [
+                new TableCell({ children: [new Paragraph("Sin registros")], columnSpan: 2 }),
+            ]
+        }));
+    } else {
+        Object.entries(conteo).forEach(([incidencia, cant]) => {
+            rows.push(new TableRow({
+                children: [
+                    new TableCell({ children: [new Paragraph(incidencia)] }),
+                    new TableCell({ children: [new Paragraph({ text: String(cant), alignment: AlignmentType.CENTER })] }),
+                ],
+            }));
+        });
+    }
+
+    // Fila de Total
+    rows.push(new TableRow({
+        children: [
+            new TableCell({ children: [new Paragraph({ text: "TOTAL", bold: true })] }),
+            new TableCell({ children: [new Paragraph({ text: String(total), bold: true, alignment: AlignmentType.CENTER })] }),
+        ],
+    }));
+
+    return [
+        new Paragraph({ text: titulo, heading: "Heading2", spacing: { before: 200, after: 100 } }),
+        new Table({ rows: rows, width: { size: 100, type: WidthType.PERCENTAGE } })
+    ];
+}
 
 module.exports = {
   crearParte,
@@ -269,5 +438,7 @@ module.exports = {
   obtenerParte,
   actualizarParte,
   cerrarParte,
-  obtenerEstadisticasCallCenter
+  obtenerEstadisticasCallCenter,
+  obtenerMetricasZonales,
+  descargarReporteConteo
 };
