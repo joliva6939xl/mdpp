@@ -9,7 +9,9 @@ const {
   cerrarParte,
   obtenerEstadisticasCallCenter,
   obtenerMetricasZonales,
-  descargarReporteConteo // <--- ✅ 1. IMPORTAMOS LA NUEVA FUNCIÓN AQUÍ
+  descargarReporteConteo,
+  descargarReporteExcel,
+  obtenerFechasActivas // <--- ✅ 1. IMPORTAMOS LA NUEVA FUNCIÓN
 } = require("../controllers/partes.controller");
 
 const { upload } = require("../middlewares/upload.middleware");
@@ -23,31 +25,37 @@ const { verificarToken } = require("../middlewares/auth.middleware");
 router.post("/", verificarToken, upload.array("evidencia", 10), crearParte);
 
 // -------------------------------------------------------------------
-// 🔥 ESTAS RUTAS ESPECÍFICAS DEBEN IR PRIMERO (Antes de /:id)
+// 🔥 ESTAS RUTAS ESPECÍFICAS DEBEN IR PRIMERO (Siempre antes de /:id y de /)
 // -------------------------------------------------------------------
 
 // Estadísticas antiguas/generales del Call Center
 router.get("/callcenter/stats", verificarToken, obtenerEstadisticasCallCenter);
 
-// ✅ 2. NUEVA RUTA: MÉTRICAS POR ZONA (Norte, Centro, Sur)
+// Métricas por zona
 router.get("/metricas/zonales", verificarToken, obtenerMetricasZonales);
+
+// ✅ 2. NUEVA RUTA: CALENDARIO (Días con datos)
+// (La ponemos aquí arriba para que no choque con nada)
+router.get("/fechas-activas", verificarToken, obtenerFechasActivas);
+
+// ✅ 3. RUTAS DE REPORTES (Las moví aquí arriba por seguridad)
+router.get("/reporte/word", verificarToken, descargarReporteConteo);
+router.get("/reporte/excel", verificarToken, descargarReporteExcel);
 
 // -------------------------------------------------------------------
 
-// 3. Listar partes (con paginación, más nuevos primero)
+// 4. Listar partes (con paginación, más nuevos primero)
 router.get("/", verificarToken, listarPartes);
 
-// 4. Ver detalle de un parte (ID dinámico)
-// ⚠️ IMPORTANTE: Esta ruta captura cualquier cosa (ej: /123, /metricas),
-// por eso las rutas específicas como "/metricas/zonales" deben ir ARRIBA de esta.
+// 5. Ver detalle de un parte (ID dinámico)
+// ⚠️ IMPORTANTE: Esta ruta captura "cualquier cosa". Por eso, todo lo específico
+// (como /metricas, /fechas-activas, /reporte) tiene que estar escrito ARRIBA de esta línea.
 router.get("/:id", verificarToken, obtenerParte);
 
-// 5. Cerrar parte (marca hora_fin = ahora)
+// 6. Cerrar parte (marca hora_fin = ahora)
 router.put("/cerrar/:id", verificarToken, cerrarParte);
-//DESCARGAR EL CONTEO EN WORD
-router.get("/reporte/word", verificarToken, descargarReporteConteo);
 
-// 6. Actualizar parte (texto, horas, etc.)
+// 7. Actualizar parte (texto, horas, etc.)
 router.put("/:id", verificarToken, actualizarParte);
 
 module.exports = router;

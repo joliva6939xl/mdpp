@@ -2,38 +2,46 @@ import React, { useState } from 'react';
 
 const API_URL = "http://localhost:4000";
 
-// ✅ ESTE ARCHIVO SOLO PIDE 2 COSAS. NO AGREGUES MÁS.
+// ✅ ESTE PIDE 4 COSAS (Fecha, Turno, Operador, CallCenter)
 interface Props {
     fecha: string;
     turno: string;
+    operador: string;
+    callcenter: string;
 }
 
-export const DownloadWordButton: React.FC<Props> = ({ fecha, turno }) => {
+export const DownloadExcelButton: React.FC<Props> = ({ fecha, turno, operador, callcenter }) => {
     const [loading, setLoading] = useState(false);
 
     const handleDownload = async () => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            // Solo mandamos fecha y turno
-            const response = await fetch(`${API_URL}/api/partes/reporte/word?fecha=${fecha}&turno=${turno}`, {
+            const params = new URLSearchParams({
+                fecha,
+                turno,
+                nombre_operador: operador || "",   
+                nombre_callcenter: callcenter || ""
+            });
+
+            const response = await fetch(`${API_URL}/api/partes/reporte/excel?${params.toString()}`, {
                 method: 'GET',
                 headers: { 'Authorization': `Bearer ${token}` },
             });
 
-            if (!response.ok) throw new Error("Error al generar reporte");
+            if (!response.ok) throw new Error("Error al generar Excel");
 
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `Conteo_Incidencias_${fecha}.docx`;
+            a.download = `Conteo_Diario_${fecha}.xlsx`;
             document.body.appendChild(a);
             a.click();
             a.remove();
         } catch (error) {
             console.error(error);
-            alert("Error al descargar Word");
+            alert("Error al descargar Excel");
         } finally {
             setLoading(false);
         }
@@ -44,13 +52,13 @@ export const DownloadWordButton: React.FC<Props> = ({ fecha, turno }) => {
             onClick={handleDownload} 
             disabled={loading}
             style={{
-                background: loading ? '#9ca3af' : '#2563eb', // Azul
+                background: loading ? '#9ca3af' : '#10b981', // Verde
                 color: 'white', padding: '8px 15px', border: 'none', borderRadius: '6px', 
                 fontWeight: 'bold', fontSize: '12px', cursor: loading ? 'wait' : 'pointer',
                 display: 'flex', alignItems: 'center', gap: '8px'
             }}
         >
-            {loading ? '⏳' : '📄'} WORD
+            {loading ? '⏳' : '📊'} EXCEL
         </button>
     );
 };

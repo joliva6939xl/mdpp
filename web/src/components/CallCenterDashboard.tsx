@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DownloadWordButton } from "./DownloadWordButton";
+import { DownloadExcelButton } from "./DownloadExcelButton";
 
 const API_URL = "http://localhost:4000";
 
@@ -39,40 +40,92 @@ const fetchOptions = () => ({
     headers: { 'Content-Type': 'application/json' }
 });
 
-// ✅ COMPONENTE VISUAL DE DETALLE (HOOKS SIEMPRE AL INICIO)
+// ✅ 1. COMPONENTE: CALENDARIO FLOTANTE (ESTILO AZUL ORIGINAL)
+const FloatingCalendar = ({ fechaSeleccionada, onChange, fechasActivas, onClose }: { fechaSeleccionada: string, onChange: (f: string) => void, fechasActivas: string[], onClose: () => void }) => {
+    const [year, month] = fechaSeleccionada.split('-').map(Number);
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const firstDayIndex = new Date(year, month - 1, 1).getDay(); 
+    const startOffset = firstDayIndex === 0 ? 6 : firstDayIndex - 1; 
+
+    const dias = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+    const vacios = Array.from({ length: startOffset }, (_, i) => i);
+
+    const esActivo = (d: number) => fechasActivas.includes(`${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    const esSeleccionado = (d: number) => `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}` === fechaSeleccionada;
+
+    const handleSelect = (newDate: string) => {
+        onChange(newDate);
+        onClose(); 
+    };
+
+    return (
+        <div style={{
+            position: 'absolute',
+            top: '45px', // Debajo del input falso
+            left: 0,
+            zIndex: 100, // Superpuesto
+            background: 'white', 
+            border: '1px solid #cbd5e1', 
+            borderRadius: '8px', 
+            padding: '15px', 
+            width: '260px', 
+            boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)'
+        }}>
+            {/* Header del Calendario */}
+            <div style={{textAlign: 'center', fontWeight: 'bold', marginBottom: '10px', color: '#1e3a8a', textTransform: 'capitalize', display: 'flex', justifyContent: 'space-between'}}>
+                <span>{new Date(year, month - 1, 1).toLocaleString('es-ES', { month: 'long', year: 'numeric' })}</span>
+                <button onClick={onClose} style={{border:'none', background:'none', cursor:'pointer', color:'#94a3b8'}}>✕</button>
+            </div>
+
+            {/* Días Semana */}
+            <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '5px'}}>
+                {['L','M','M','J','V','S','D'].map(d => <div key={d} style={{fontSize: '10px', fontWeight:'bold', color: '#64748b', textAlign: 'center'}}>{d}</div>)}
+            </div>
+
+            {/* Días Mes */}
+            <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px'}}>
+                {vacios.map(v => <div key={`v-${v}`} />)}
+                {dias.map(d => (
+                    <div key={d} onClick={() => handleSelect(`${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`)}
+                        style={{
+                            height: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: '6px',
+                            background: esSeleccionado(d) ? '#3b82f6' : (esActivo(d) ? '#eff6ff' : 'transparent'),
+                            color: esSeleccionado(d) ? 'white' : (esActivo(d) ? '#1e3a8a' : '#334155'),
+                            fontWeight: esSeleccionado(d) || esActivo(d) ? 'bold' : 'normal',
+                            position: 'relative', border: esActivo(d) && !esSeleccionado(d) ? '1px solid #bfdbfe' : 'none'
+                        }}
+                    >
+                        <span style={{fontSize: '12px'}}>{d}</span>
+                        {/* Punto Azul */}
+                        {esActivo(d) && !esSeleccionado(d) && <div style={{width: '4px', height: '4px', background: '#3b82f6', borderRadius: '50%', position: 'absolute', bottom: '2px'}}></div>}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// ✅ COMPONENTE VISUAL DE DETALLE (SIN CAMBIOS)
 const ParteDetalleView = ({ parte, onClose, onOpenMedia }: { parte: any, onClose?: () => void, onOpenMedia: (m:any) => void }) => {
-    
-    // 1. ADAPTADOR DE MULTIMEDIA (HOOK)
     const evidencias = useMemo(() => {
         if (!parte) return [];
-
         const lista: any[] = [];
-        
-        // Procesar Fotos
         if (Array.isArray(parte.fotos)) {
             parte.fotos.forEach((ruta: string) => {
                 const url = ruta.startsWith('http') ? ruta : `${API_URL}/uploads/${ruta}`;
                 lista.push({ url, tipo: 'foto' });
             });
         }
-
-        // Procesar Videos
         if (Array.isArray(parte.videos)) {
             parte.videos.forEach((ruta: string) => {
                 const url = ruta.startsWith('http') ? ruta : `${API_URL}/uploads/${ruta}`;
                 lista.push({ url, tipo: 'video' });
             });
         }
-
-        // Soporte Legacy
-        if (parte.todosArchivos && lista.length === 0) {
-            return parte.todosArchivos;
-        }
-
+        if (parte.todosArchivos && lista.length === 0) return parte.todosArchivos;
         return lista;
     }, [parte]);
 
-    // 2. RETORNO TEMPRANO
     if (!parte) return null;
 
     const s = {
@@ -105,7 +158,6 @@ const ParteDetalleView = ({ parte, onClose, onOpenMedia }: { parte: any, onClose
 
     return (
         <div style={{background:'white', height:'100%', display:'flex', flexDirection:'column', overflow: 'hidden'}}>
-            {/* Encabezado fijo */}
             {onClose && (
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10, paddingBottom:10, borderBottom:'2px solid #f1f5f9', flexShrink: 0}}>
                     <div>
@@ -115,20 +167,12 @@ const ParteDetalleView = ({ parte, onClose, onOpenMedia }: { parte: any, onClose
                     <button onClick={onClose} style={{border:'none', background:'#f1f5f9', width:30, height:30, borderRadius:15, fontSize:16, cursor:'pointer', color:'#64748b', display:'flex', alignItems:'center', justifyContent:'center'}}>✕</button>
                 </div>
             )}
-
-            {/* ZONA DE SCROLL ACTIVA */}
-            <div style={{
-                flex: 1, 
-                overflowY: 'auto', // Scroll forzado
-                paddingRight: '10px'
-            }}>
-                
+            <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
                 <div style={s.sectionTitle}>1. INFORMACIÓN GENERAL</div>
                 <div style={s.row}><span style={s.label}>N° Físico:</span><span style={s.value}>{parte.parte_fisico || '---'}</span></div>
                 <div style={s.row}><span style={s.label}>Turno:</span><span style={s.value}>{parte.turno}</span></div>
                 <div style={s.row}><span style={s.label}>Sector / Zona:</span><span style={s.value}>Sector {parte.sector} - {parte.zona}</span></div>
                 <div style={s.row}><span style={s.label}>Lugar:</span><span style={s.value}>{parte.lugar}</span></div>
-                
                 {parte.latitud && parte.longitud && (
                     <div style={s.row}>
                         <span style={s.label}>Ubicación:</span>
@@ -139,7 +183,6 @@ const ParteDetalleView = ({ parte, onClose, onOpenMedia }: { parte: any, onClose
                         </span>
                     </div>
                 )}
-
                 <div style={s.sectionTitle}>2. UNIDAD Y PERSONAL</div>
                 <div style={s.row}><span style={s.label}>Unidad:</span><span style={s.value}>{parte.unidad_tipo} {parte.unidad_numero}</span></div>
                 <div style={s.row}><span style={s.label}>Placa:</span><span style={s.value}>{parte.placa || '---'}</span></div>
@@ -147,19 +190,15 @@ const ParteDetalleView = ({ parte, onClose, onOpenMedia }: { parte: any, onClose
                 <div style={s.row}><span style={s.label}>DNI Conductor:</span><span style={s.value}>{parte.dni_conductor || '---'}</span></div>
                 <div style={s.row}><span style={s.label}>Sup. Zonal:</span><span style={s.value}>{parte.supervisor_zonal || '---'}</span></div>
                 <div style={s.row}><span style={s.label}>Sup. General:</span><span style={s.value}>{parte.supervisor_general || '---'}</span></div>
-
                 <div style={s.sectionTitle}>3. DETALLE DEL HECHO</div>
                 <div style={s.row}><span style={s.label}>Tipo (Sumilla):</span><span style={{...s.value, fontWeight:'bold', color:'#2563eb'}}>{parte.sumilla}</span></div>
                 <div style={s.row}><span style={s.label}>Origen:</span><span style={s.value}>{parte.asunto || '---'}</span></div>
-                
                 <div style={{marginTop:'8px', background:'#fffbeb', padding:'12px', borderRadius:'8px', borderLeft:'4px solid #f59e0b'}}>
                     <div style={{fontSize:'10px', fontWeight:'900', color:'#b45309', marginBottom:'4px', letterSpacing:'1px'}}>OCURRENCIA:</div>
                     <p style={{margin:0, fontSize:'13px', lineHeight:'1.5', color:'#451a03', whiteSpace:'pre-wrap', fontFamily:'monospace'}}>{parte.ocurrencia}</p>
                 </div>
-
                 <div style={s.sectionTitle}>4. INTERVENIDOS / PARTICIPANTES</div>
                 {renderParticipantes()}
-
                 <div style={s.sectionTitle}>5. EVIDENCIAS ({evidencias.length})</div>
                 <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'8px', marginTop:'10px'}}>
                     {evidencias.length > 0 ? evidencias.map((m:any, i:number) => (
@@ -172,28 +211,37 @@ const ParteDetalleView = ({ parte, onClose, onOpenMedia }: { parte: any, onClose
                         </div>
                     )) : <div style={{gridColumn:'1/-1', fontSize:'12px', color:'#94a3b8', textAlign:'center', padding:'15px', background:'#f8fafc', borderRadius:'6px'}}>📸 No hay evidencias adjuntas.</div>}
                 </div>
-                
                 <div style={{height: 50}}></div>
             </div>
         </div>
     );
 };
 
+// Interface Dashboard
 interface CallCenterDashboardProps {
     userName?: string;
     onLogout?: () => void;
     internoNombre?: string;
     internoRoperoTurno?: string;
+    onOpenInternalLogin?: () => void;
+    onBack?: () => void;
 }
 
 const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({ 
-    userName, onLogout, internoNombre, internoRoperoTurno 
+    userName, onLogout, internoNombre, internoRoperoTurno, onBack, onOpenInternalLogin 
 }) => {
     const navigate = useNavigate();
     const [fecha, setFecha] = useState<string>(getLocalToday());
     const [turnoSel, setTurnoSel] = useState<string>("TURNO DIA");
     const [dataZonal, setDataZonal] = useState<any>({ Norte: [], Centro: [], Sur: [], Total: 0 });
     const [loading, setLoading] = useState(false);
+    
+    // ✅ ESTADO DEL CALENDARIO
+    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+    const [fechasActivas, setFechasActivas] = useState<string[]>([]);
+
+    const [operadorInput, setOperadorInput] = useState(internoRoperoTurno || "");
+    const [callCenterInput, setCallCenterInput] = useState(internoNombre || "");
 
     const [showModal, setShowModal] = useState(false);
     const [showMediaModal, setShowMediaModal] = useState(false);
@@ -205,11 +253,21 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
     const [parteSel, setParteSel] = useState<any>(null);
     const [mediaSeleccionado, setMediaSeleccionado] = useState<any>(null);
 
+    useEffect(() => {
+        if(internoRoperoTurno) setOperadorInput(internoRoperoTurno);
+        if(internoNombre) setCallCenterInput(internoNombre);
+    }, [internoRoperoTurno, internoNombre]);
+
+    // ✅ EFECTO: CARGAR PUNTOS AZULES (Fechas con datos)
+    useEffect(() => {
+        fetch(`${API_URL}/api/partes/fechas-activas`, fetchOptions())
+            .then(r => r.json()).then(d => { if(d.ok) setFechasActivas(d.fechas); })
+            .catch(e => console.error(e));
+    }, []);
+
     // --- CARGA DE DATOS ---
     useEffect(() => {
-        // ✅ LIMPIEZA AUTOMÁTICA: Si cambias fecha o turno, se cierra el detalle
         setParteSel(null);
-
         let isMounted = true;
         const load = async () => {
             setLoading(true);
@@ -271,15 +329,9 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
     const openUsers = async () => { setShowModal(true); setView('list'); const r = await fetch(`${API_URL}/api/usuarios`, fetchOptions()); if(r.ok) setUsuarios(await r.json()); };
     const selectUser = async (u:any) => { setUserSel(u); setView('detail'); setActiveTab('cv'); setParteSel(null); const r = await fetch(`${API_URL}/api/usuarios/${u.id}/partes`, fetchOptions()); if(r.ok) { const d=await r.json(); setUserPartes(d.partes||[]); } };
     
-    // ✅ FUNCIÓN INTERRUPTOR (TOGGLE)
     const handleSelectParte = async (id: number) => { 
         try { 
-            // Si el parte ya está abierto, lo cerramos
-            if (parteSel && parteSel.id === id) {
-                setParteSel(null);
-                return;
-            }
-
+            if (parteSel && parteSel.id === id) { setParteSel(null); return; }
             const r = await fetch(`${API_URL}/api/partes/${id}`, fetchOptions()); 
             const d = await r.json(); 
             if(d.ok) setParteSel(d.parte || d.data); 
@@ -296,7 +348,7 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
 
     const styles: Record<string, React.CSSProperties> = {
         container: { padding: '30px', background: '#f4f6f8', minHeight: '100vh', display:'flex', gap:20, fontFamily:'sans-serif' },
-        card: { background: 'white', padding: '20px', borderRadius: '12px', marginBottom: '20px', display: 'flex', gap: 10, alignItems:'center' },
+        card: { background: 'white', padding: '20px', borderRadius: '12px', marginBottom: '20px', display: 'flex', gap: 10, alignItems:'center', flexWrap: 'wrap' },
         overlay: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9000 },
         modal: { background: 'white', width: '90%', maxWidth: '1000px', height: '85vh', borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
         btnNav: { padding: '8px 15px', borderRadius: 6, border: 'none', cursor: 'pointer', background: '#e2e8f0', fontWeight: 'bold', fontSize: 12 },
@@ -306,29 +358,96 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
     return (
         <div 
             style={styles.container}
-            // ✅ EVENTO: Clic en el fondo gris cierra el panel
             onMouseDown={(e) => {
-                if (e.target === e.currentTarget) {
-                    setParteSel(null);
-                }
+                // Cierra calendario y panel si se hace clic fuera
+                if (e.target === e.currentTarget) setParteSel(null);
             }}
         >
+            {/* OVERLAY INVISIBLE: Para cerrar el calendario si haces clic fuera */}
+            {isCalendarOpen && (
+                <div onClick={() => setIsCalendarOpen(false)} style={{position:'fixed', inset:0, zIndex:90}}></div>
+            )}
+
             <div style={{flex:1}}>
                 <div style={{display:'flex', justifyContent:'space-between', marginBottom:20}}>
-                    <h1 style={{margin:0, fontSize:24}}>Panel Call Center – <span style={{color:'#3b82f6'}}>{userName}</span></h1>
-                    <div style={{fontSize:12, textAlign:'right'}}>Op: {internoNombre} | Turno: {internoRoperoTurno}</div>
+                    <div style={{display:'flex', gap:10, alignItems:'center'}}>
+                        {onBack && (
+                            <button 
+                                onClick={onBack} 
+                                style={{background:'#64748b', color:'white', border:'none', borderRadius:'50%', width:32, height:32, cursor:'pointer', fontWeight:'bold', fontSize:16}}
+                                title="Volver al menú"
+                            >
+                                ←
+                            </button>
+                        )}
+                        <h1 style={{margin:0, fontSize:24}}>Panel Call Center – <span style={{color:'#3b82f6'}}>{userName}</span></h1>
+                    </div>
+                    <div style={{fontSize:12, textAlign:'right'}}>
+                        <div>Op: <b>{internoNombre}</b> | Turno: <b>{internoRoperoTurno}</b></div>
+                        {onOpenInternalLogin && <button onClick={onOpenInternalLogin} style={{background:'none', border:'none', color:'#3b82f6', textDecoration:'underline', cursor:'pointer', padding:0}}>Cambiar Credenciales</button>}
+                    </div>
                 </div>
 
                 <div style={styles.card}>
-                    <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ccc'}} />
-                    <select value={turnoSel} onChange={e=>setTurnoSel(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ccc'}}>
-                        <option value="TURNO DIA">TURNO DÍA (06:01 - 18:00)</option>
-                        <option value="TURNO NOCHE">TURNO NOCHE (18:01 - 06:00)</option>
-                    </select>
-                    <button onClick={() => navigate('/estadistica')} style={styles.btnNav}>MÉTRICAS</button>
-                    <button onClick={openUsers} style={styles.btnNav}>USUARIOS</button>
-                    <DownloadWordButton fecha={fecha} turno={turnoSel} />
-                    <button onClick={onLogout} style={{...styles.btnNav, background:'#ef4444', color:'white'}}>SALIR</button>
+                    
+                    {/* ✅ 2. AQUÍ ESTÁ EL CAMBIO: CALENDARIO FLOTANTE */}
+                    <div style={{display:'flex', flexDirection:'column', position:'relative'}}>
+                        <label style={{fontSize:10, fontWeight:'bold', color:'#64748b'}}>FECHA</label>
+                        <button 
+                            onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+                            style={{
+                                padding:'8px', borderRadius:'6px', border:'1px solid #ccc', 
+                                background:'white', cursor:'pointer', textAlign:'left', 
+                                minWidth: '130px', display:'flex', justifyContent:'space-between', alignItems:'center'
+                            }}
+                        >
+                            <span>{fecha}</span>
+                            <span style={{fontSize:10}}>▼</span>
+                        </button>
+
+                        {/* EL CALENDARIO APARECE AQUÍ FLOTANDO */}
+                        {isCalendarOpen && (
+                            <FloatingCalendar 
+                                fechaSeleccionada={fecha} 
+                                onChange={setFecha} 
+                                fechasActivas={fechasActivas} 
+                                onClose={() => setIsCalendarOpen(false)}
+                            />
+                        )}
+                    </div>
+
+                    <div style={{display:'flex', flexDirection:'column'}}>
+                        <label style={{fontSize:10, fontWeight:'bold', color:'#64748b'}}>TURNO</label>
+                        <select value={turnoSel} onChange={e=>setTurnoSel(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ccc'}}>
+                            <option value="TURNO DIA">TURNO DÍA (06:01 - 18:00)</option>
+                            <option value="TURNO NOCHE">TURNO NOCHE (18:01 - 06:00)</option>
+                        </select>
+                    </div>
+
+                    <div style={{display:'flex', flexDirection:'column'}}>
+                        <label style={{fontSize:10, fontWeight:'bold', color:'#64748b'}}>ROPER</label>
+                        <input type="text" value={operadorInput} onChange={e => setOperadorInput(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ccc', width:120}} placeholder="Nombre Roper" />
+                    </div>
+                    <div style={{display:'flex', flexDirection:'column'}}>
+                        <label style={{fontSize:10, fontWeight:'bold', color:'#64748b'}}>CALL CENTER</label>
+                        <input type="text" value={callCenterInput} onChange={e => setCallCenterInput(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ccc', width:120}} placeholder="Tu Nombre" />
+                    </div>
+
+                    <div style={{display:'flex', gap:10, marginLeft:'auto', alignItems:'center'}}>
+                        <button onClick={() => navigate('/estadistica')} style={styles.btnNav}>MÉTRICAS</button>
+                        <button onClick={openUsers} style={styles.btnNav}>USUARIOS</button>
+                        
+                        <DownloadWordButton fecha={fecha} turno={turnoSel} />
+                        
+                        <DownloadExcelButton 
+                            fecha={fecha} 
+                            turno={turnoSel} 
+                            operador={operadorInput} 
+                            callcenter={callCenterInput} 
+                        />
+
+                        <button onClick={onLogout} style={{...styles.btnNav, background:'#ef4444', color:'white'}}>SALIR</button>
+                    </div>
                 </div>
 
                 {loading ? <p>Cargando datos...</p> : (
@@ -351,34 +470,33 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                 </div>
             </div>
 
-            {/* PANEL LATERAL DE DETALLE */}
-{/*
-{parteSel && !showModal && (
-    <div style={{
-        width: 450, 
-        background: 'white', 
-        padding: 25, 
-        borderRadius: 12, 
-        boxShadow: '-5px 0 20px rgba(0,0,0,0.05)', 
-        borderLeft: '1px solid #eee', 
-        display: 'flex', 
-        flexDirection: 'column',
-        position: 'sticky',
-        top: 20, 
-        height: 'calc(100vh - 40px)', // Altura fija
-        overflow: 'hidden' 
-    }}>
-        <ParteDetalleView 
-            parte={parteSel} 
-            onClose={() => setParteSel(null)}
-            onOpenMedia={(m) => { 
-                setMediaSeleccionado(m); 
-                setShowMediaModal(true); 
-            }} 
-        />
-    </div>
-)}
-*/}
+            {/* PANEL DETALLE LATERAL */}
+            {parteSel && !showModal && (
+                <div style={{
+                    width: 450, 
+                    background: 'white', 
+                    padding: 25, 
+                    borderRadius: 12, 
+                    boxShadow: '-5px 0 20px rgba(0,0,0,0.05)', 
+                    borderLeft: '1px solid #eee', 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    position: 'sticky', 
+                    top: 20, 
+                    height: 'calc(100vh - 40px)', 
+                    overflow: 'hidden' 
+                }}>
+                    <ParteDetalleView 
+                        parte={parteSel} 
+                        onClose={() => setParteSel(null)}
+                        onOpenMedia={(m) => { 
+                            setMediaSeleccionado(m); 
+                            setShowMediaModal(true); 
+                        }} 
+                    />
+                </div>
+            )}
+
             {/* MODAL USUARIOS */}
             {showModal && (
                 <div style={styles.overlay}>
@@ -425,13 +543,12 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                                                     </div>
                                                 ))}
                                             </div>
-                                            {/* ZONA SCROLL EN MODAL */}
                                             <div style={{
                                                 flex: 1, 
                                                 padding: 30, 
                                                 overflow: 'hidden', 
                                                 display: 'flex', 
-                                                flexDirection: 'column',
+                                                flexDirection: 'column', 
                                                 height: '65vh'
                                             }}>
                                                 {parteSel ? (

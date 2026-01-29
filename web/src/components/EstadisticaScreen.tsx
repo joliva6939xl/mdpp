@@ -1,149 +1,151 @@
-import { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const API_URL = "http://localhost:4000"; 
+const API_URL = "http://localhost:4000";
 
-const EstadisticaScreen = () => {
+const EstadisticaScreen: React.FC = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
-    // Estado inicial en 0
-    const [stats, setStats] = useState({ Norte: 0, Centro: 0, Sur: 0, Total: 0 });
+    const [stats, setStats] = useState({
+        Norte: 0,
+        Centro: 0,
+        Sur: 0,
+        Total: 0
+    });
 
+    // 1. CARGA DE DATOS (Mantiene tu lógica de negocio)
     useEffect(() => {
-        const fetchMetricas = async () => {
+        const fetchMetrics = async () => {
             try {
-                // Recuperamos el token para tener permiso
-                const token = localStorage.getItem('token'); 
-
-                // ✅ LLAMADA A LA RUTA QUE CREASTE EN EL BACKEND
+                // Token para seguridad
+                const token = localStorage.getItem('token') || localStorage.getItem('adminToken');
+                
                 const res = await fetch(`${API_URL}/api/partes/metricas/zonales`, {
-                    headers: {
+                    method: 'GET',
+                    headers: { 
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}` // Importante porque tu ruta tiene verificarToken
+                        'Authorization': `Bearer ${token}` 
                     }
                 });
                 
-                const data = await res.json();
-                
-                if (data.ok && data.stats) {
-                    setStats(data.stats);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.ok && data.stats) {
+                        setStats(data.stats);
+                    } else if (data.Norte !== undefined) {
+                        setStats(data);
+                    }
                 } else {
-                    console.error("No se pudieron cargar las métricas:", data);
+                    console.error("Error en respuesta de métricas");
                 }
             } catch (error) {
-                console.error("Error de conexión:", error);
+                console.error("Error cargando estadísticas", error);
             } finally {
                 setLoading(false);
             }
         };
 
-        fetchMetricas();
+        fetchMetrics();
     }, []);
 
-    // Calcular porcentaje para las barras
-    const getPercent = (val: number) => {
-        if (stats.Total === 0) return 0;
-        return (val / stats.Total) * 100;
+    // ✅ 2. FIX DE NAVEGACIÓN: AHORA APUNTA A '/perfil' (Tu ruta correcta)
+    const handleBack = () => {
+        navigate('/perfil'); 
     };
 
-    return (
-        <div style={{ padding: '40px', background: '#f4f6f8', minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', fontFamily: 'sans-serif' }}>
-            
-            <div style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', width: '100%', maxWidth: '800px' }}>
-                
-                <h2 style={{ textAlign: 'center', color: '#1565C0', fontWeight: 'bold', marginBottom: '10px', fontSize: '24px' }}>
-                    MÉTRICAS EN TIEMPO REAL
-                </h2>
-                
-                <div style={{ borderBottom: '2px solid #eee', marginBottom: '20px' }}></div>
+    // 3. CÁLCULO DE PORCENTAJES
+    const getPercent = (val: number) => {
+        if (!stats.Total || stats.Total === 0) return 0;
+        return Math.round((val / stats.Total) * 100);
+    };
 
-                <h3 style={{ textAlign: 'center', marginBottom: '30px', color: '#333' }}>
-                    Total de Partes: <span style={{ fontWeight: '900', fontSize: '22px', color: '#1565C0' }}>{loading ? '...' : stats.Total}</span>
-                </h3>
+    const styles: Record<string, React.CSSProperties> = {
+        container: { padding: '30px', background: '#f8fafc', minHeight: '100vh', fontFamily: 'Segoe UI, sans-serif' },
+        header: { display: 'flex', alignItems: 'center', marginBottom: '30px', gap: '20px' },
+        backBtn: { background: '#64748b', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' },
+        title: { margin: 0, color: '#1e293b', fontSize: '26px', fontWeight: 800 },
+        grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '25px' },
+        card: { background: 'white', padding: '25px', borderRadius: '16px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
+        cardLabel: { fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', marginBottom: '10px' },
+        cardNumber: { fontSize: '48px', fontWeight: 900, color: '#0f172a', lineHeight: 1 },
+        progressBg: { height: '10px', width: '100%', background: '#f1f5f9', borderRadius: '5px', marginTop: '20px', overflow: 'hidden' },
+        percentText: { fontSize: '13px', fontWeight: 600, color: '#94a3b8', marginTop: '5px', textAlign: 'right' }
+    };
 
-                {/* TABLA DE BARRAS */}
-                <div style={{ background: '#fff', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-                    
-                    {/* Encabezado */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '120px 80px 1fr', padding: '15px 20px', background: '#f8fafc', fontWeight: 'bold', color: '#64748b', borderBottom: '1px solid #e2e8f0', fontSize:'13px', letterSpacing:'1px' }}>
-                        <div>ZONA</div>
-                        <div style={{textAlign: 'center'}}>CANTIDAD</div>
-                        <div>PROGRESO</div>
-                    </div>
-
-                    {loading ? <p style={{textAlign:'center', padding:20, color:'#94a3b8'}}>Cargando datos...</p> : (
-                        <>
-                            {/* ZONA NORTE */}
-                            <FilaZona 
-                                nombre="NORTE" 
-                                cantidad={stats.Norte} 
-                                color="#3b82f6" // Azul
-                                porcentaje={getPercent(stats.Norte)} 
-                            />
-
-                            {/* ZONA CENTRO */}
-                            <FilaZona 
-                                nombre="CENTRO" 
-                                cantidad={stats.Centro} 
-                                color="#10b981" // Verde Esmeralda
-                                porcentaje={getPercent(stats.Centro)} 
-                            />
-
-                            {/* ZONA SUR */}
-                            <FilaZona 
-                                nombre="SUR" 
-                                cantidad={stats.Sur} 
-                                color="#f59e0b" // Naranja Ámbar
-                                porcentaje={getPercent(stats.Sur)} 
-                            />
-                        </>
-                    )}
-                </div>
-
-                {/* Botón Volver */}
-                <button 
-                    onClick={() => navigate('/')} 
-                    style={{ 
-                        marginTop: '30px', 
-                        padding: '12px 24px', 
-                        background: '#64748b', 
-                        color: 'white', 
-                        border: 'none', 
-                        borderRadius: '6px', 
-                        cursor: 'pointer',
-                        fontWeight: 'bold',
-                        fontSize: '14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                    }}
-                >
-                    <span>⬅</span> Volver al Dashboard
-                </button>
-
-            </div>
+    const renderProgressBar = (value: number, color: string) => (
+        <div style={styles.progressBg}>
+            <div style={{
+                height: '100%',
+                width: `${getPercent(value)}%`,
+                background: color,
+                borderRadius: '5px',
+                transition: 'width 1s ease-in-out'
+            }} />
         </div>
     );
-};
 
-// Componente visual para cada fila
-const FilaZona = ({ nombre, cantidad, color, porcentaje }: { nombre: string, cantidad: number, color: string, porcentaje: number }) => {
     return (
-        <div style={{ display: 'grid', gridTemplateColumns: '120px 80px 1fr', padding: '15px 20px', borderBottom: '1px solid #f1f5f9', alignItems: 'center' }}>
-            <div style={{ fontWeight: '800', color: '#334155' }}>{nombre}</div>
-            <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '16px', color: '#1e293b' }}>{cantidad}</div>
-            
-            {/* Barra de fondo */}
-            <div style={{ width: '100%', background: '#f1f5f9', height: '10px', borderRadius: '5px', overflow: 'hidden' }}>
-                {/* Barra de progreso animada */}
-                <div style={{ 
-                    width: `${porcentaje}%`, 
-                    background: color, 
-                    height: '100%', 
-                    borderRadius: '5px',
-                    transition: 'width 1s ease-in-out'
-                }} />
+        <div style={styles.container}>
+            <div style={styles.header}>
+                {/* Botón que ejecuta handleBack */}
+                <button onClick={handleBack} style={styles.backBtn}>
+                    ⬅ VOLVER AL DASHBOARD
+                </button>
+                <h1 style={styles.title}>Métricas Zonales en Tiempo Real</h1>
             </div>
+
+            {loading ? (
+                <div style={{textAlign:'center', padding: 50, color: '#64748b'}}>Cargando métricas del sistema...</div>
+            ) : (
+                <div style={styles.grid}>
+                    {/* ZONA NORTE */}
+                    <div style={{...styles.card, borderTop: '6px solid #3b82f6'}}>
+                        <div>
+                            <div style={styles.cardLabel}>Zona Norte</div>
+                            <div style={styles.cardNumber}>{stats.Norte}</div>
+                        </div>
+                        <div>
+                            {renderProgressBar(stats.Norte, '#3b82f6')}
+                            <div style={styles.percentText}>{getPercent(stats.Norte)}% del total</div>
+                        </div>
+                    </div>
+
+                    {/* ZONA CENTRO */}
+                    <div style={{...styles.card, borderTop: '6px solid #10b981'}}>
+                        <div>
+                            <div style={styles.cardLabel}>Zona Centro</div>
+                            <div style={styles.cardNumber}>{stats.Centro}</div>
+                        </div>
+                        <div>
+                            {renderProgressBar(stats.Centro, '#10b981')}
+                            <div style={styles.percentText}>{getPercent(stats.Centro)}% del total</div>
+                        </div>
+                    </div>
+
+                    {/* ZONA SUR */}
+                    <div style={{...styles.card, borderTop: '6px solid #f59e0b'}}>
+                        <div>
+                            <div style={styles.cardLabel}>Zona Sur</div>
+                            <div style={styles.cardNumber}>{stats.Sur}</div>
+                        </div>
+                        <div>
+                            {renderProgressBar(stats.Sur, '#f59e0b')}
+                            <div style={styles.percentText}>{getPercent(stats.Sur)}% del total</div>
+                        </div>
+                    </div>
+
+                    {/* TOTAL GLOBAL */}
+                    <div style={{...styles.card, borderTop: '6px solid #ef4444', background: '#fff1f2'}}>
+                        <div>
+                            <div style={{...styles.cardLabel, color: '#991b1b'}}>TOTAL GENERAL</div>
+                            <div style={{...styles.cardNumber, color: '#ef4444'}}>{stats.Total}</div>
+                        </div>
+                        <div style={{marginTop: 20, fontSize: '13px', color: '#b91c1c', fontWeight: 'bold'}}>
+                            Resumen consolidado de las 3 zonas
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

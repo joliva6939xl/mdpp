@@ -1,31 +1,25 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { styles as rawStyles } from "./ControlPanel.styles";
 
+// Tipos
 export type UserTarget = "APP" | "ADMIN";
 export type SelectionMode = "DELETE" | "BLOCK" | "UNBLOCK" | "NONE";
 
 export interface ControlPanelProps {
   userName: string;
-
   selectedUserCount: number;
   isSelectionModeActive: boolean;
   currentMode: SelectionMode;
-
   currentUserTarget: UserTarget;
   onUserTargetChange: (value: UserTarget) => void;
-
   onSelectModeChange: (mode: SelectionMode) => void;
-
   onDeleteUsers: () => void | Promise<void>;
   onOpenBlockModal: () => void;
-
   onLogout: () => void;
   onBack: () => void;
 }
 
 const API_URL = "http://localhost:4000/api";
-const styles = rawStyles as Record<string, React.CSSProperties>;
 
 const generarUsuarioDesdeNombre = (nombre: string) => {
   if (!nombre.trim()) return "";
@@ -35,7 +29,7 @@ const generarUsuarioDesdeNombre = (nombre: string) => {
   return (primerNombre.charAt(0) + primerApellido).toLowerCase();
 };
 
-const ControlPanelContent: React.FC<ControlPanelProps> = ({
+const ControlPanel: React.FC<ControlPanelProps> = ({
   userName,
   selectedUserCount,
   isSelectionModeActive,
@@ -50,31 +44,28 @@ const ControlPanelContent: React.FC<ControlPanelProps> = ({
 }) => {
   const navigate = useNavigate();
 
-  // ✅ NO ELIMINAR PANEL ADMINISTRADOR
-  const [showAdminPanel, setShowAdminPanel] = useState(true);
+  // Estados locales del formulario
   const [showCreateUser, setShowCreateUser] = useState(false);
-
   const [tipoNuevo, setTipoNuevo] = useState<"APP" | "ADMIN">("APP");
-
   const [nombreNuevo, setNombreNuevo] = useState("");
   const [usuarioNuevo, setUsuarioNuevo] = useState("");
-
+  
   // APP
   const [dniNuevo, setDniNuevo] = useState("");
   const [celularNuevo, setCelularNuevo] = useState("");
   const [cargoNuevo, setCargoNuevo] = useState("");
-
+  
   // ADMIN
   const [passwordNuevo, setPasswordNuevo] = useState("");
   const [rolAdminNuevo, setRolAdminNuevo] = useState("ADMIN");
-
-  // Permisos ADMIN
+  
+  // Permisos
   const [permCrearParte, setPermCrearParte] = useState(true);
   const [permBorrarParte, setPermBorrarParte] = useState(false);
   const [permCerrarParte, setPermCerrarParte] = useState(false);
-  const [permVerEstadisticasDescargar, setPermVerEstadisticasDescargar] =
-    useState(false);
-
+  // ✅ RECUPERADO: Estado para el permiso de estadísticas
+  const [permVerEstadisticasDescargar, setPermVerEstadisticasDescargar] = useState(false);
+  
   const [creando, setCreando] = useState(false);
 
   const resetForm = () => {
@@ -93,12 +84,10 @@ const ControlPanelContent: React.FC<ControlPanelProps> = ({
   };
 
   const handleLogout = () => {
-    // ✅ SIN TOKEN
     localStorage.removeItem("adminToken");
     localStorage.removeItem("adminUser");
     localStorage.removeItem("adminRole");
     localStorage.removeItem("adminId");
-
     onLogout();
     navigate("/");
   };
@@ -107,510 +96,212 @@ const ControlPanelContent: React.FC<ControlPanelProps> = ({
 
   const handleRunCurrentModeAction = () => {
     if (!canRunAction) return;
-
-    if (currentMode === "DELETE") {
-      onDeleteUsers();
-      return;
-    }
-
-    if (currentMode === "BLOCK" || currentMode === "UNBLOCK") {
-      onOpenBlockModal();
-      return;
-    }
+    if (currentMode === "DELETE") onDeleteUsers();
+    if (currentMode === "BLOCK" || currentMode === "UNBLOCK") onOpenBlockModal();
   };
 
   const handleCreateUser = async () => {
     const nombreClean = nombreNuevo.trim();
-    if (!nombreClean) {
-      alert("El nombre es obligatorio.");
-      return;
-    }
+    if (!nombreClean) { alert("El nombre es obligatorio."); return; }
 
     try {
       setCreando(true);
-
-      // ───────── APP ─────────
+      // Lógica APP
       if (tipoNuevo === "APP") {
         const dniClean = dniNuevo.trim();
         const celularClean = celularNuevo.trim();
         const cargoClean = cargoNuevo.trim();
-
-        if (!dniClean || !celularClean || !cargoClean) {
-          alert("Completa DNI, celular y cargo.");
-          return;
-        }
-
+        if (!dniClean || !celularClean || !cargoClean) { alert("Completa DNI, celular y cargo."); return; }
+        
         let login = usuarioNuevo.trim();
         if (!login) {
           login = generarUsuarioDesdeNombre(nombreClean);
-          if (!login) {
-            alert("No se pudo generar usuario automático. Ingresa usuario.");
-            return;
-          }
+          if (!login) { alert("No se pudo generar usuario automático."); return; }
         }
-
-        // Password APP = DNI (regla actual)
         const password = dniClean;
 
         const resp = await fetch(`${API_URL}/auth/register`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            nombre: nombreClean,
-            dni: dniClean,
-            celular: celularClean,
-            cargo: cargoClean,
-            usuario: login,
-            contrasena: password,
-          }),
+          body: JSON.stringify({ nombre: nombreClean, dni: dniClean, celular: celularClean, cargo: cargoClean, usuario: login, contrasena: password }),
         });
-
-        const text = await resp.text();
-        if (!resp.ok) {
-          alert("Error creando APP: " + (text || "sin respuesta"));
-          return;
-        }
-
-        alert(`Usuario APP creado.\nUsuario: ${login}\nContraseña: ${password}`);
+        if (!resp.ok) { const text = await resp.text(); alert("Error: " + text); return; }
+        alert(`Usuario APP creado.\nUsuario: ${login}\nPass: ${password}`);
         window.location.reload();
         return;
       }
-
-      // ───────── ADMIN ─────────
+      // Lógica ADMIN
       let login = usuarioNuevo.trim();
       if (!login) {
         login = generarUsuarioDesdeNombre(nombreClean);
-        if (!login) {
-          alert("No se pudo generar usuario automático. Ingresa usuario.");
-          return;
-        }
+        if (!login) { alert("No se pudo generar usuario."); return; }
       }
-
       const rol = rolAdminNuevo.trim();
-      if (!rol) {
-        alert("El rol es obligatorio.");
-        return;
-      }
-
       const password = passwordNuevo.trim() || "123456";
 
-      // ✅ SIN TOKEN (sin Authorization)
       const resp = await fetch(`${API_URL}/admin/create-admin`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          nombre: nombreClean,
-          usuario: login,
-          contrasena: password,
-          rol,
-          puede_crear_parte: permCrearParte,
-          puede_borrar_parte: permBorrarParte,
-          puede_cerrar_parte: permCerrarParte,
-          puede_ver_estadisticas_descargar: permVerEstadisticasDescargar,
+          nombre: nombreClean, usuario: login, contrasena: password, rol,
+          puede_crear_parte: permCrearParte, puede_borrar_parte: permBorrarParte,
+          puede_cerrar_parte: permCerrarParte, 
+          puede_ver_estadisticas_descargar: permVerEstadisticasDescargar, // ✅ SE ENVÍA AL BACKEND
         }),
       });
-
-      const text = await resp.text();
-      if (!resp.ok) {
-        alert("Error creando ADMIN: " + (text || "sin respuesta"));
-        return;
-      }
-
-      alert(`Usuario ADMIN creado.\nUsuario: ${login}\nContraseña: ${password}`);
+      if (!resp.ok) { const text = await resp.text(); alert("Error: " + text); return; }
+      alert(`Usuario ADMIN creado.\nUsuario: ${login}\nPass: ${password}`);
       window.location.reload();
-    } catch (e) {
-      console.error("Error creando usuario:", e);
-      alert("Error de conexión al crear usuario.");
-    } finally {
-      setCreando(false);
-    }
+
+    } catch (e) { console.error(e); alert("Error de conexión."); } finally { setCreando(false); }
+  };
+
+  // ESTILOS LIMPIOS
+  const s = {
+    card: { background: 'white', padding: '25px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', marginBottom: '25px' },
+    header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #f1f5f9', paddingBottom: '15px' },
+    title: { margin: 0, fontSize: '20px', fontWeight: 800, color: '#1e293b' },
+    subtitle: { margin: 0, fontSize: '13px', color: '#64748b' },
+    btnBack: { background: 'white', border: '1px solid #cbd5e1', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', fontSize: 16, display:'flex', alignItems:'center', justifyContent:'center', marginRight: 15 },
+    btnLogout: { background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', padding: '8px 16px', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: 12 },
+    
+    toolbar: { display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' as const },
+    
+    // Tabs Switch
+    tabGroup: { display: 'flex', background: '#f1f5f9', padding: 4, borderRadius: 8 },
+    tab: (active: boolean) => ({
+        padding: '8px 20px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+        background: active ? 'white' : 'transparent', color: active ? '#1e3a8a' : '#64748b', boxShadow: active ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s'
+    }),
+
+    // Action Buttons
+    btnPrimary: { background: '#1e3a8a', color: 'white', border: 'none', padding: '10px 20px', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 13 },
+    btnSecondary: { background: 'white', color: '#475569', border: '1px solid #cbd5e1', padding: '10px 20px', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 13 },
+    btnDanger: { background: '#ef4444', color: 'white', border: 'none', padding: '10px 20px', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 13 },
+    btnSuccess: { background: '#10b981', color: 'white', border: 'none', padding: '10px 20px', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 13 }, // ✅ Nuevo estilo para desbloquear
+    
+    // Formulario
+    formPanel: { marginTop: 20, background: '#f8fafc', padding: 20, borderRadius: 8, border: '1px solid #e2e8f0' },
+    formGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 15, marginTop: 15 },
+    inputGroup: { display: 'flex', flexDirection: 'column' as const, gap: 5 },
+    label: { fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' as const },
+    input: { padding: 10, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }
   };
 
   return (
-    <div style={styles.container}>
-      {/* HEADER */}
-      <div style={styles.header}>
-        <div>
-          <h2 style={styles.title}>Panel de control</h2>
-          <p style={styles.subtitle}>Bienvenido, {userName}</p>
+    <div style={s.card}>
+        {/* HEADER */}
+        <div style={s.header}>
+            <div style={{display:'flex', alignItems:'center'}}>
+                <button onClick={onBack} style={s.btnBack}>←</button>
+                <div>
+                    <h2 style={s.title}>Panel de Administración</h2>
+                    <p style={s.subtitle}>Gestión de Usuarios - {userName}</p>
+                </div>
+            </div>
+            <button onClick={handleLogout} style={s.btnLogout}>Cerrar Sesión</button>
         </div>
 
-        <div style={styles.headerActions}>
-          <button
-            type="button"
-            style={{ ...(styles.baseButton || {}), ...(styles.btnBack || {}) }}
-            onClick={onBack}
-          >
-            ⬅ Volver
-          </button>
+        {/* TOOLBAR */}
+        <div style={s.toolbar}>
+            {/* Switch APP/ADMIN */}
+            <div style={s.tabGroup}>
+                <button style={s.tab(currentUserTarget === 'APP')} onClick={() => onUserTargetChange('APP')}>👥 Usuarios APP</button>
+                <button style={s.tab(currentUserTarget === 'ADMIN')} onClick={() => onUserTargetChange('ADMIN')}>🛡️ Administradores</button>
+            </div>
 
-          <button
-            type="button"
-            style={{
-              ...(styles.baseButton || {}),
-              ...(styles.btnLogout || {}),
-            }}
-            onClick={handleLogout}
-          >
-            Cerrar sesión
-          </button>
-        </div>
-      </div>
+            <div style={{height: 20, width: 1, background: '#e2e8f0'}}></div>
 
-      {/* TOGGLE APP/ADMIN */}
-      <div style={styles.toggleRow}>
-        <span>Ver usuarios:</span>
-        <button
-          type="button"
-          style={{
-            ...(styles.baseButton || {}),
-            ...(currentUserTarget === "APP"
-              ? (styles.btnUserTargetActive || {})
-              : (styles.btnUserTarget || {})),
-          }}
-          onClick={() => onUserTargetChange("APP")}
-        >
-          APP
-        </button>
-        <button
-          type="button"
-          style={{
-            ...(styles.baseButton || {}),
-            ...(currentUserTarget === "ADMIN"
-              ? (styles.btnUserTargetActive || {})
-              : (styles.btnUserTarget || {})),
-          }}
-          onClick={() => onUserTargetChange("ADMIN")}
-        >
-          ADMIN
-        </button>
-      </div>
-
-      {/* INFO SELECCIÓN */}
-      <div style={styles.selectionRow}>
-        <div style={styles.selectionLeft}>
-          <span style={styles.selectionInfo}>
-            Selección:{" "}
-            <strong>
-              {isSelectionModeActive ? "ACTIVA" : "INACTIVA"} (seleccionados:{" "}
-              {selectedUserCount})
-            </strong>
-          </span>
-        </div>
-      </div>
-
-      {/* PANEL ADMINISTRADOR (NO SE ELIMINA) */}
-      <div style={styles.adminPanelToggle}>
-        <button
-          type="button"
-          style={{
-            ...(styles.baseButton || {}),
-            ...(styles.btnAdminToggle || {}),
-          }}
-          onClick={() => setShowAdminPanel((p) => !p)}
-        >
-          {showAdminPanel ? "Ocultar panel de administradores" : "Panel administrador"}
-        </button>
-      </div>
-
-      {showAdminPanel && (
-        <div style={styles.adminPanel}>
-          <h3 style={styles.adminTitle}>Opciones de administrador</h3>
-
-          <div style={styles.adminActionsRow}>
-            {/* Crear usuario */}
-            <button
-              type="button"
-              style={{ ...(styles.baseButton || {}), ...(styles.btnCreate || {}) }}
-              onClick={() => {
-                setShowCreateUser((p) => !p);
-                if (!showCreateUser) resetForm();
-              }}
-            >
-              {showCreateUser ? "Cerrar creación de usuario" : "Crear nuevo usuario"}
+            {/* Acciones */}
+            <button style={s.btnPrimary} onClick={() => { setShowCreateUser(!showCreateUser); if(!showCreateUser) resetForm(); }}>
+                {showCreateUser ? '✕ Cancelar Creación' : '+ Nuevo Usuario'}
             </button>
 
-            {/* Modo eliminar */}
-            <button
-              type="button"
-              style={{
-                ...(styles.baseButton || {}),
-                ...(currentMode === "DELETE"
-                  ? (styles.btnDanger || {})
-                  : (styles.btnSecondary || {})),
-              }}
-              onClick={() =>
-                onSelectModeChange(currentMode === "DELETE" ? "NONE" : "DELETE")
-              }
-            >
-              🗑 Modo Eliminar
-            </button>
+            {/* Modos de Selección */}
+            {!showCreateUser && (
+                <>
+                    <button 
+                        style={currentMode === 'DELETE' ? s.btnDanger : s.btnSecondary} 
+                        onClick={() => onSelectModeChange(currentMode === 'DELETE' ? 'NONE' : 'DELETE')}
+                    >
+                        {currentMode === 'DELETE' ? 'Cancelar Eliminar' : '🗑 Eliminar'}
+                    </button>
+                    
+                    <button 
+                        style={currentMode === 'BLOCK' ? s.btnDanger : s.btnSecondary}
+                        onClick={() => onSelectModeChange(currentMode === 'BLOCK' ? 'NONE' : 'BLOCK')}
+                    >
+                        {currentMode === 'BLOCK' ? 'Cancelar Bloqueo' : '🔒 Bloquear'}
+                    </button>
 
-            {/* Modo bloqueo */}
-            <button
-              type="button"
-              style={{
-                ...(styles.baseButton || {}),
-                ...(currentMode === "BLOCK"
-                  ? (styles.btnWarning || {})
-                  : (styles.btnSecondary || {})),
-              }}
-              onClick={() =>
-                onSelectModeChange(currentMode === "BLOCK" ? "NONE" : "BLOCK")
-              }
-            >
-              🔒 Modo Bloqueo
-            </button>
-
-            {/* Modo desbloqueo */}
-            <button
-              type="button"
-              style={{
-                ...(styles.baseButton || {}),
-                ...(currentMode === "UNBLOCK"
-                  ? (styles.btnPrimary || {})
-                  : (styles.btnUnblock || {})),
-              }}
-              onClick={() =>
-                onSelectModeChange(currentMode === "UNBLOCK" ? "NONE" : "UNBLOCK")
-              }
-            >
-              🔓 Modo Desbloqueo
-            </button>
-
-            {/* Salir selección */}
-            {isSelectionModeActive && (
-              <button
-                type="button"
-                style={{
-                  ...(styles.baseButton || {}),
-                  ...(styles.btnSecondary || {}),
-                }}
-                onClick={() => onSelectModeChange("NONE")}
-              >
-                Salir modo selección
-              </button>
+                    {/* ✅ RECUPERADO: BOTÓN DESBLOQUEAR */}
+                    <button 
+                        style={currentMode === 'UNBLOCK' ? s.btnSuccess : s.btnSecondary}
+                        onClick={() => onSelectModeChange(currentMode === 'UNBLOCK' ? 'NONE' : 'UNBLOCK')}
+                    >
+                        {currentMode === 'UNBLOCK' ? 'Cancelar Desbloqueo' : '🔓 Desbloquear'}
+                    </button>
+                </>
             )}
-          </div>
 
-          {/* Botón acción principal */}
-          {isSelectionModeActive && currentMode !== "NONE" && (
-            <div style={styles.massActions}>
-              <button
-                type="button"
-                style={{
-                  ...(styles.baseButton || {}),
-                  ...(currentMode === "DELETE"
-                    ? (styles.btnDanger || {})
-                    : (styles.btnWarning || {})),
-                  ...(!canRunAction ? (styles.btnDisabled || {}) : {}),
-                }}
-                onClick={handleRunCurrentModeAction}
-                disabled={!canRunAction}
-              >
-                {currentMode === "DELETE"
-                  ? "🗑 Eliminar seleccionados"
-                  : currentMode === "BLOCK"
-                  ? "🔒 Bloquear seleccionados"
-                  : "🔓 Desbloquear seleccionados"}
-              </button>
-            </div>
-          )}
-
-          {/* Crear usuario panel */}
-          {showCreateUser && (
-            <div style={styles.createUserPanelBase}>
-              <h4 style={styles.createTitle}>Crear nuevo usuario</h4>
-
-              <div style={styles.createTabs}>
-                <button
-                  type="button"
-                  style={{
-                    ...(styles.baseButton || {}),
-                    ...(tipoNuevo === "APP"
-                      ? (styles.tabActive || {})
-                      : (styles.tabInactive || {})),
-                  }}
-                  onClick={() => setTipoNuevo("APP")}
-                >
-                  Usuario APP
+            {/* Botón de Ejecución Masiva */}
+            {isSelectionModeActive && selectedUserCount > 0 && (
+                <button style={currentMode === 'UNBLOCK' ? s.btnSuccess : s.btnDanger} onClick={handleRunCurrentModeAction}>
+                    CONFIRMAR {currentMode} ({selectedUserCount})
                 </button>
-                <button
-                  type="button"
-                  style={{
-                    ...(styles.baseButton || {}),
-                    ...(tipoNuevo === "ADMIN"
-                      ? (styles.tabActive || {})
-                      : (styles.tabInactive || {})),
-                  }}
-                  onClick={() => setTipoNuevo("ADMIN")}
-                >
-                  Usuario ADMIN
-                </button>
-              </div>
-
-              <div style={styles.createForm}>
-                <div style={styles.createField}>
-                  <label style={styles.createLabel}>Nombre completo</label>
-                  <input
-                    type="text"
-                    value={nombreNuevo}
-                    onChange={(e) => setNombreNuevo(e.target.value)}
-                    style={styles.createInput}
-                    placeholder="Ej: JUAN GUEVARA"
-                  />
-                </div>
-
-                <div style={styles.createField}>
-                  <label style={styles.createLabel}>
-                    Usuario (login){" "}
-                    <span style={styles.smallInfo}>(si vacío se genera)</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={usuarioNuevo}
-                    onChange={(e) => setUsuarioNuevo(e.target.value)}
-                    style={styles.createInput}
-                    placeholder="Ej: jguevara"
-                  />
-                </div>
-
-                {tipoNuevo === "APP" && (
-                  <>
-                    <div style={styles.createField}>
-                      <label style={styles.createLabel}>DNI</label>
-                      <input
-                        type="text"
-                        value={dniNuevo}
-                        onChange={(e) => setDniNuevo(e.target.value)}
-                        style={styles.createInput}
-                      />
-                    </div>
-
-                    <div style={styles.createField}>
-                      <label style={styles.createLabel}>Celular</label>
-                      <input
-                        type="text"
-                        value={celularNuevo}
-                        onChange={(e) => setCelularNuevo(e.target.value)}
-                        style={styles.createInput}
-                      />
-                    </div>
-
-                    <div style={styles.createField}>
-                      <label style={styles.createLabel}>Cargo</label>
-                      <input
-                        type="text"
-                        value={cargoNuevo}
-                        onChange={(e) => setCargoNuevo(e.target.value)}
-                        style={styles.createInput}
-                      />
-                    </div>
-                  </>
-                )}
-
-                {tipoNuevo === "ADMIN" && (
-                  <>
-                    <div style={styles.createField}>
-                      <label style={styles.createLabel}>Contraseña</label>
-                      <input
-                        type="password"
-                        value={passwordNuevo}
-                        onChange={(e) => setPasswordNuevo(e.target.value)}
-                        style={styles.createInput}
-                        placeholder="Si vacío: 123456"
-                      />
-                    </div>
-
-                    <div style={styles.createField}>
-                      <label style={styles.createLabel}>Rol ADMIN</label>
-                      <input
-                        type="text"
-                        value={rolAdminNuevo}
-                        onChange={(e) => setRolAdminNuevo(e.target.value)}
-                        style={styles.createInput}
-                        placeholder="Ej: CALL CENTER"
-                      />
-                    </div>
-
-                    <div style={styles.createField}>
-                      <label style={styles.createLabel}>Permisos del ADMIN</label>
-                      <div style={styles.checkboxRow}>
-                        <label style={styles.checkboxLabel}>
-                          <input
-                            type="checkbox"
-                            checked={permCrearParte}
-                            onChange={(e) => setPermCrearParte(e.target.checked)}
-                          />
-                          Crear parte
-                        </label>
-
-                        <label style={styles.checkboxLabel}>
-                          <input
-                            type="checkbox"
-                            checked={permBorrarParte}
-                            onChange={(e) => setPermBorrarParte(e.target.checked)}
-                          />
-                          Borrar parte
-                        </label>
-
-                        <label style={styles.checkboxLabel}>
-                          <input
-                            type="checkbox"
-                            checked={permCerrarParte}
-                            onChange={(e) => setPermCerrarParte(e.target.checked)}
-                          />
-                          Cerrar parte
-                        </label>
-
-                        <label style={styles.checkboxLabel}>
-                          <input
-                            type="checkbox"
-                            checked={permVerEstadisticasDescargar}
-                            onChange={(e) =>
-                              setPermVerEstadisticasDescargar(e.target.checked)
-                            }
-                          />
-                          Ver estadísticas y descargar
-                        </label>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                <div style={styles.createActions}>
-                  <button
-                    type="button"
-                    style={{ ...(styles.baseButton || {}), ...(styles.btnCancel || {}) }}
-                    onClick={() => {
-                      setShowCreateUser(false);
-                      resetForm();
-                    }}
-                    disabled={creando}
-                  >
-                    Cancelar
-                  </button>
-
-                  <button
-                    type="button"
-                    style={{
-                      ...(styles.baseButton || {}),
-                      ...(styles.btnCreate || {}),
-                      ...(creando ? (styles.btnDisabled || {}) : {}),
-                    }}
-                    onClick={handleCreateUser}
-                    disabled={creando}
-                  >
-                    {creando ? "Creando..." : "Guardar usuario"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+            )}
         </div>
-      )}
+
+        {/* FORMULARIO DE CREACIÓN (DESPLEGABLE) */}
+        {showCreateUser && (
+            <div style={s.formPanel}>
+                <div style={{display:'flex', gap: 10, borderBottom:'1px solid #e2e8f0', paddingBottom: 10, marginBottom: 15}}>
+                    <button style={s.tab(tipoNuevo === 'APP')} onClick={() => setTipoNuevo('APP')}>Para App Móvil</button>
+                    <button style={s.tab(tipoNuevo === 'ADMIN')} onClick={() => setTipoNuevo('ADMIN')}>Para Panel Web</button>
+                </div>
+
+                <div style={s.formGrid}>
+                    <div style={s.inputGroup}>
+                        <label style={s.label}>Nombre Completo</label>
+                        <input style={s.input} value={nombreNuevo} onChange={e => setNombreNuevo(e.target.value)} placeholder="Ej: Juan Perez" />
+                    </div>
+                    <div style={s.inputGroup}>
+                        <label style={s.label}>Usuario (Login)</label>
+                        <input style={s.input} value={usuarioNuevo} onChange={e => setUsuarioNuevo(e.target.value)} placeholder="Ej: jperez (opcional)" />
+                    </div>
+
+                    {tipoNuevo === 'APP' ? (
+                        <>
+                            <div style={s.inputGroup}><label style={s.label}>DNI (Será la contraseña)</label><input style={s.input} value={dniNuevo} onChange={e => setDniNuevo(e.target.value)} /></div>
+                            <div style={s.inputGroup}><label style={s.label}>Celular</label><input style={s.input} value={celularNuevo} onChange={e => setCelularNuevo(e.target.value)} /></div>
+                            <div style={s.inputGroup}><label style={s.label}>Cargo</label><input style={s.input} value={cargoNuevo} onChange={e => setCargoNuevo(e.target.value)} /></div>
+                        </>
+                    ) : (
+                        <>
+                            <div style={s.inputGroup}><label style={s.label}>Contraseña</label><input style={s.input} type="password" value={passwordNuevo} onChange={e => setPasswordNuevo(e.target.value)} placeholder="Defecto: 123456" /></div>
+                            <div style={s.inputGroup}><label style={s.label}>Rol</label><input style={s.input} value={rolAdminNuevo} onChange={e => setRolAdminNuevo(e.target.value)} /></div>
+                        </>
+                    )}
+                </div>
+
+                {tipoNuevo === 'ADMIN' && (
+                    <div style={{marginTop: 15, display:'flex', gap: 15, fontSize: 13, flexWrap:'wrap'}}>
+                        <label><input type="checkbox" checked={permCrearParte} onChange={e => setPermCrearParte(e.target.checked)} /> Crear Parte</label>
+                        <label><input type="checkbox" checked={permBorrarParte} onChange={e => setPermBorrarParte(e.target.checked)} /> Borrar Parte</label>
+                        <label><input type="checkbox" checked={permCerrarParte} onChange={e => setPermCerrarParte(e.target.checked)} /> Cerrar Parte</label>
+                        {/* ✅ RECUPERADO: CHECKBOX ESTADÍSTICAS */}
+                        <label><input type="checkbox" checked={permVerEstadisticasDescargar} onChange={e => setPermVerEstadisticasDescargar(e.target.checked)} /> Ver Estadísticas y Descargar</label>
+                    </div>
+                )}
+
+                <div style={{marginTop: 20, display:'flex', justifyContent:'flex-end', gap: 10}}>
+                    <button style={s.btnSecondary} onClick={() => setShowCreateUser(false)}>Cancelar</button>
+                    <button style={s.btnPrimary} onClick={handleCreateUser} disabled={creando}>{creando ? 'Guardando...' : 'Guardar Usuario'}</button>
+                </div>
+            </div>
+        )}
     </div>
   );
 };
 
-export default ControlPanelContent;
+export default ControlPanel;

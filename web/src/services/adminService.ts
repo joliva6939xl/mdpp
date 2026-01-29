@@ -1,149 +1,241 @@
-// Archivo: mdpp/web/src/services/adminService.ts
-// Servicios para la consola web de administración (usuarios y partes)
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 const API_URL = "http://localhost:4000/api";
 
-export interface UsuarioPayload {
+// ==========================================
+// 1. DEFINICIÓN DE TIPOS (CONTRATO ESTRICTO)
+// ==========================================
+
+export type UserTarget = "APP" | "ADMIN";
+export type ActionType = "BLOCK" | "UNBLOCK";
+
+export interface UsuarioSistema {
   id: number;
-  tipo: string; // "APP" | "ADMIN"
+  usuario: string; 
+  nombre: string;
+  rol: string;
+  dni?: string;
+  estado: "ACTIVO" | "BLOQUEADO";
+  bloqueo_motivo?: string;
+  creado_en?: string;
+  tipo_tabla: UserTarget;
 }
 
-interface BaseResponse {
+export interface Parte {
+  id: number;
+  parte_fisico: string;
+  fecha: string;
+  hora: string;
+  zona: string;
+  sumilla: string;
+  estado: string;
+}
+
+export interface ApiResponse<T = any> {
   ok: boolean;
   message?: string;
+  data?: T;
+  
+  // Propiedades variables del backend
+  usuarios?: T;
+  partes?: T;
+  parte?: T;
+  detalle?: T;
+  stats?: T;
+  error?: string;
+  
+  // Campos normalizados
+  user?: any;       
+  usuario?: any;
+  archivos?: any[];
 }
 
-// ====== RESPUESTAS TIPADAS ======
-
-// Listar usuarios (APP o ADMIN)
-export interface UsuariosSistemaResponse extends BaseResponse {
-  usuarios: Record<string, unknown>[];
+export interface UsuarioPayload {
+  id: number;
+  tipo: UserTarget;
 }
 
-// Eliminar usuarios
-export interface DeleteUsuariosResponse extends BaseResponse {
-  deletedCount?: number;
+export interface ServiceResponse<T = any> {
+  resp: Response | null;
+  json: ApiResponse<T>;
+  success: boolean;
 }
 
-// Bloquear / desbloquear usuarios
-export type ToggleBloqueoResponse = BaseResponse;
+// ==========================================
+// 2. CORE: HTTP CLIENT
+// ==========================================
 
-// Detalle de parte
-export interface ParteDetalleResponse extends BaseResponse {
-  // El backend puede devolver muchos nombres distintos, por eso declaramos todos como opcionales
-  parte?: Record<string, unknown>;
-  data?: Record<string, unknown>;
-  parteVirtual?: Record<string, unknown>;
-  parte_detalle?: Record<string, unknown>;
-  detalle?: Record<string, unknown>;
+const getHeaders = (isFormData = false) => {
+  const token = localStorage.getItem("adminToken");
+  const headers: HeadersInit = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (!isFormData) headers["Content-Type"] = "application/json";
+  return headers;
+};
 
-  // Archivos / multimedia
-  archivos?: Record<string, unknown>[];
-  media?: Record<string, unknown>[];
-  multimedia?: Record<string, unknown>[];
-  archivos_parte?: Record<string, unknown>[];
-  parte_archivos?: Record<string, unknown>[];
-}
-
-// Detalle de usuario
-export interface UsuarioDetallesResponse extends BaseResponse {
-  user?: Record<string, unknown>;
-  usuario?: Record<string, unknown>;
-  data?: Record<string, unknown>;
-}
-
-// Partes de un usuario
-export interface UsuarioPartesResponse extends BaseResponse {
-  partes?: Record<string, unknown>[];
-  data?: Record<string, unknown>[];
-  rows?: Record<string, unknown>[];
-  lista?: Record<string, unknown>[];
-}
-
-// ====== HELPER GENÉRICO ======
-
-async function requestJson<T extends BaseResponse>(
+export async function requestJson<T>(
   endpoint: string,
-  options?: RequestInit
-): Promise<{ resp: Response; json: T }> {
-  const resp = await fetch(`${API_URL}${endpoint}`, options);
+  method: "GET" | "POST" | "PUT" | "DELETE" = "GET",
+  body?: any,
+  isFormData: boolean = false
+): Promise<ServiceResponse<T>> {
+  
+  const config: RequestInit = {
+    method,
+    headers: getHeaders(isFormData),
+  };
 
-  let json: T;
-  try {
-    json = (await resp.json()) as T;
-  } catch {
-    // Si la respuesta no es JSON válido (por ejemplo, HTML de error),
-    // devolvemos un objeto base para evitar el SyntaxError.
-    json = { ok: false, message: "Respuesta no válida del servidor." } as T;
+  if (body) {
+    config.body = isFormData ? body : JSON.stringify(body);
   }
 
-  return { resp, json };
+  try {
+    const resp = await fetch(`${API_URL}${endpoint}`, config);
+    let json: ApiResponse<T>;
+    
+    // ✅ CORRECCIÓN: Quitamos la variable del catch para evitar el error de ESLint
+    try {
+      json = await resp.json();
+    } catch {
+      json = { ok: false, message: "Error crítico: Respuesta inválida del servidor." };
+    }
+    
+    const isSuccess = resp.ok && (json.ok !== false); 
+    return { resp, json, success: isSuccess };
+
+  } catch (error: any) {
+    console.error(`🚨 Error [${method} ${endpoint}]:`, error);
+    return {
+      resp: null,
+      json: { ok: false, message: "Error de conexión." },
+      success: false,
+    };
+  }
 }
 
-// =================== USUARIOS ===================
+// ==========================================
+// 3. SERVICIO DE USUARIOS (CRUD)
+// ==========================================
 
-// Obtiene la lista de usuarios APP o ADMIN
-export async function obtenerUsuariosSistema(
-  tipoVista: "APP" | "ADMIN"
-): Promise<{ resp: Response; json: UsuariosSistemaResponse }> {
-  const endpoint =
-    tipoVista === "APP" ? "/admin/usuarios-app" : "/admin/usuarios-admin";
+export const obtenerUsuariosSistema = async (tipo: UserTarget) => {
+  const endpoint = tipo === "ADMIN" ? "/admin/list-admins" : "/admin/list-app-users";
+  const { resp, json, success } = await requestJson<UsuarioSistema[]>(endpoint, "GET");
+  const lista = json.usuarios || json.data || [];
+  if (Array.isArray(lista)) {
+    lista.forEach((u: any) => u.tipo_tabla = tipo);
+    json.usuarios = lista;
+  }
+  return { resp, json, success };
+};
 
-  return requestJson<UsuariosSistemaResponse>(endpoint);
-}
+export const obtenerUsuarioDetallesAdmin = async (id: number) => {
+  const res = await requestJson<any>(`/admin/user-details/${id}`, "GET");
+  res.json.data = res.json.user || res.json.usuario || res.json.data;
+  return res;
+};
 
-// Elimina usuarios seleccionados (APP o ADMIN)
-// Backend: DELETE /api/admin/delete-usuarios
-export async function eliminarUsuariosSeleccionados(
-  users: UsuarioPayload[]
-): Promise<{ resp: Response; json: DeleteUsuariosResponse }> {
-  return requestJson<DeleteUsuariosResponse>("/admin/delete-usuarios", {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ users }),
+export const crearUsuarioSistema = async (data: any, target: UserTarget) => {
+  const endpoint = target === "APP" ? "/auth/register" : "/admin/create-admin";
+  return await requestJson(endpoint, "POST", data);
+};
+
+// ---------------------------------------------------------
+// 3.1 ACCIONES CRÍTICAS (ELIMINAR / BLOQUEAR)
+// ---------------------------------------------------------
+
+export const eliminarUsuariosSeleccionados = async (usuarios: UsuarioPayload[]) => {
+  if (!usuarios.length) return { success: false, json: { ok: false, message: "Sin selección" }, resp: null };
+  return await requestJson("/admin/delete-users", "POST", { usuarios });
+};
+
+export const eliminarUsuario = async (id: number, tipo: UserTarget) => {
+  return await requestJson(`/admin/delete-user/${id}?tipo=${tipo}`, "DELETE");
+};
+
+export const bloqueoUsuarios = async (ids: number[], accion: ActionType, motivo?: string) => {
+  return await requestJson("/admin/toggle-bloqueo", "POST", { 
+    ids, 
+    accion, 
+    motivo: motivo || "Gestión administrativa" 
   });
-}
+};
 
-// Bloquea / Desbloquea usuarios seleccionados
-// Backend: POST /api/admin/toggle-bloqueo
-export async function bloqueoUsuarios(
-  users: UsuarioPayload[],
-  accion: "BLOQUEAR" | "DESBLOQUEAR",
-  motivo: string
-): Promise<{ resp: Response; json: ToggleBloqueoResponse }> {
-  return requestJson<ToggleBloqueoResponse>("/admin/toggle-bloqueo", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      users,
-      accion,
-      motivo,
-    }),
-  });
-}
+// Wrappers individuales
+export const bloquearUsuario = async (id: number, motivo?: string) => bloqueoUsuarios([id], "BLOCK", motivo);
+export const desbloquearUsuario = async (id: number) => bloqueoUsuarios([id], "UNBLOCK");
 
-// =================== PARTES ===================
 
-// Detalle de un parte
-// Backend: GET /api/partes/:id
-export async function obtenerPartePorIdAdmin(
-  parteId: number
-): Promise<{ resp: Response; json: ParteDetalleResponse }> {
-  return requestJson<ParteDetalleResponse>(`/partes/${parteId}`);
-}
+// ==========================================
+// 4. SERVICIO DE PARTES
+// ==========================================
 
-// Detalle de usuario APP o ADMIN
-// Backend: GET /api/admin/usuario-details/:id
-export async function obtenerUsuarioDetallesAdmin(
-  userId: number
-): Promise<{ resp: Response; json: UsuarioDetallesResponse }> {
-  return requestJson<UsuarioDetallesResponse>(`/admin/usuario-details/${userId}`);
-}
+export const obtenerUsuarioPartesAdmin = async (userId: number) => {
+  const { json, ...rest } = await requestJson<Parte[]>(`/partes?usuario_id=${userId}`, "GET");
+  const lista = json.partes || json.data || [];
+  json.data = lista;
+  return { json, ...rest };
+};
 
-// Partes de un usuario APP
-// Backend: GET /api/admin/usuario-partes/:id
-export async function obtenerUsuarioPartesAdmin(
-  userId: number
-): Promise<{ resp: Response; json: UsuarioPartesResponse }> {
-  return requestJson<UsuarioPartesResponse>(`/admin/usuario-partes/${userId}`);
-}
+export const obtenerPartePorIdAdmin = async (id: number) => {
+  const { json, ...rest } = await requestJson<any>(`/partes/${id}`, "GET");
+  const base = json.parte || json.data || json.detalle;
+  if (base) {
+    base.fotos = base.fotos || [];
+    base.videos = base.videos || [];
+    if (Array.isArray(json.archivos)) {
+       json.archivos.forEach((a: any) => {
+           if (a.tipo === 'foto') base.fotos.push(a.ruta);
+           if (a.tipo === 'video') base.videos.push(a.ruta);
+       });
+    }
+    json.data = base; 
+  }
+  return { json, ...rest };
+};
+
+export const listarPartes = async (filtros = "") => requestJson(`/partes${filtros}`, "GET");
+export const crearParte = async (formData: FormData) => requestJson("/partes", "POST", formData, true);
+export const cerrarParte = async (id: number, horaFin?: string) => requestJson(`/partes/cerrar/${id}`, "PUT", { hora_fin: horaFin });
+export const actualizarParte = async (id: number, data: any) => requestJson(`/partes/${id}`, "PUT", data);
+
+// ==========================================
+// 5. REPORTES
+// ==========================================
+
+export const obtenerEstadisticas = async (f: string, t: string) => {
+    const { json, ...rest } = await requestJson(`/partes/callcenter/stats?fecha=${f}&turno=${t}`, "GET");
+    if (json.stats && !json.data) json.data = json.stats;
+    return { json, ...rest };
+};
+
+export const obtenerMetricasZonales = async () => {
+    const { json, ...rest } = await requestJson("/partes/metricas/zonales", "GET");
+    if (json.stats && !json.data) json.data = json.stats;
+    return { json, ...rest };
+};
+
+// ==========================================
+// 6. EXPORT UNIFICADO
+// ==========================================
+
+export const adminService = {
+  requestJson,
+  obtenerUsuariosSistema,
+  obtenerUsuarioDetallesAdmin,
+  crearUsuarioSistema,
+  eliminarUsuario,
+  eliminarUsuariosSeleccionados,
+  bloquearUsuario,
+  desbloquearUsuario,
+  bloqueoUsuarios,
+  obtenerUsuarioPartesAdmin,
+  obtenerPartePorIdAdmin,
+  listarPartes,
+  crearParte,
+  cerrarParte,
+  actualizarParte,
+  obtenerEstadisticas,
+  obtenerMetricasZonales
+};
+
+export default adminService;
