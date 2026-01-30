@@ -7,7 +7,7 @@ import { UserDetailsModal } from "../components/UserDetailsModal";
 import { InternalCenterLoginModal } from "../components/InternalCenterLoginModal";
 import CallCenterDashboard from "../components/CallCenterDashboard";
 
-// ✅ CORRECCIÓN 1: Importar Tipos explícitamente
+// Importar Tipos explícitamente
 import type { SelectionMode } from "../components/ControlPanel";
 import { adminService } from "../services/adminService";
 import type {
@@ -20,7 +20,7 @@ import type {
 import { mapUsuarioDetalleToModal, mapUsuarioTablaToModal, type UsuarioApp } from "../utils/mapUsuarioModal";
 
 // ==========================================
-// 1. DEFINICIONES DE CONTRATOS (INTERFACES)
+// 1. DEFINICIONES DE CONTRATOS
 // ==========================================
 
 interface IUIService {
@@ -40,7 +40,6 @@ interface IAdminService {
   bloqueoUsuarios(ids: number[], action: "BLOCK" | "UNBLOCK", motivo?: string): Promise<ServiceResponse<unknown>>;
 }
 
-// Interfaz para errores HTTP seguros (evita 'any')
 interface HttpError {
   status?: number;
   response?: { status?: number };
@@ -48,10 +47,9 @@ interface HttpError {
 }
 
 // ==========================================
-// 2. IMPLEMENTACIONES POR DEFECTO
+// 2. UTILS
 // ==========================================
 
-// ✅ CORRECCIÓN 3: Reemplazo de process.env por import.meta.env (Seguro para Vite/Web)
 const isDev = import.meta.env?.DEV ?? false;
 
 const defaultLogger: ILogger = {
@@ -64,14 +62,11 @@ const defaultUIService: IUIService = {
   confirm: (msg) => window.confirm(msg),
 };
 
-// ✅ CORRECCIÓN 2: Adaptador Seguro (Sin 'any')
 const normalizeUsers = (data: unknown[], target: UserTarget): UsuarioSistema[] => {
   if (!Array.isArray(data)) return [];
   
   return data.map((item) => {
-    // Casteamos a un objeto genérico seguro para leer propiedades
     const u = item as Record<string, unknown>;
-
     return {
       id: Number(u.id),
       usuario: String(u.usuario || u.nombre_usuario || ""),
@@ -86,7 +81,7 @@ const normalizeUsers = (data: unknown[], target: UserTarget): UsuarioSistema[] =
 };
 
 // ==========================================
-// 3. PROPS PARA INYECCIÓN
+// 3. COMPONENTE PRINCIPAL
 // ==========================================
 
 interface ProfileProps {
@@ -95,13 +90,8 @@ interface ProfileProps {
   logger?: ILogger;
 }
 
-// ==========================================
-// 4. COMPONENTE PRINCIPAL
-// ==========================================
-
 type InternalCenterInfo = { nombre: string; roperoCentralTurno: string; };
 
-// Helper Type para Location State
 interface LocationState {
   username?: string;
   role?: string;
@@ -114,7 +104,7 @@ const Profile: React.FC<ProfileProps> = ({
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const state = location.state as LocationState; // Tipado seguro del state
+  const state = location.state as LocationState;
 
   // --- Refs ---
   const activeRequestRef = useRef<AbortController | null>(null);
@@ -129,10 +119,12 @@ const Profile: React.FC<ProfileProps> = ({
   const [vistaActual, setVistaActual] = useState<UserTarget>("APP");
   const [listaUsuarios, setListaUsuarios] = useState<UsuarioSistema[]>([]);
   
+  // Estado UI
   const [status, setStatus] = useState<'idle' | 'loading' | 'error' | 'success'>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
-  // ✅ CORRECCIÓN 4: Eliminada variable 'loadingDetails' que no se usaba
+  // 🔥 Trigger manual para recargar sin dependencias circulares
+  const [reloadKey, setReloadKey] = useState(0);
 
   // --- Estados de Acción Masiva ---
   const [currentMode, setCurrentMode] = useState<SelectionMode>("NONE");
@@ -168,10 +160,8 @@ const Profile: React.FC<ProfileProps> = ({
 
   const handleError = useCallback((err: unknown) => {
     if (err instanceof Error && err.name === 'AbortError') return;
-    
     logger.error("Error operativo", err);
     
-    // ✅ CORRECCIÓN: Tipado seguro de error HTTP sin 'any'
     const httpErr = err as HttpError;
     const statusVal = httpErr.status || httpErr.response?.status;
 
@@ -184,12 +174,13 @@ const Profile: React.FC<ProfileProps> = ({
   }, [handleAuthError, logger]);
 
   // ==========================================
-  // CARGA DE DATOS
+  // CARGA DE DATOS (CORREGIDA SIN BUCLE)
   // ==========================================
   
   const fetchUsuarios = useCallback(async () => {
     if (esCallCenter) return;
 
+    // Cancelar petición anterior
     if (activeRequestRef.current) {
       activeRequestRef.current.abort();
     }
@@ -207,7 +198,6 @@ const Profile: React.FC<ProfileProps> = ({
       if (controller.signal.aborted) return;
 
       if (success && resp?.ok) {
-        // ✅ CORRECCIÓN: Casteo seguro a unknown[] antes de normalizar
         const raw = (json.usuarios || json.data || []) as unknown[];
         const normalized = normalizeUsers(raw, vistaActual);
         setListaUsuarios(normalized);
@@ -223,20 +213,30 @@ const Profile: React.FC<ProfileProps> = ({
       if (isMountedRef.current) handleError(error);
     } finally {
       if (isMountedRef.current && activeRequestRef.current === controller) {
-        if (status !== 'error') setStatus('idle');
-        activeRequestRef.current = null;
+         // No seteamos status aquí para evitar parpadeos o bucles secundarios
+         activeRequestRef.current = null;
       }
     }
-  }, [vistaActual, esCallCenter, service, handleAuthError, handleError, status]);
+    
+    // 🛑 CORRECTO: 'status' NO está en las dependencias. ¡Adiós Bucle!
+  }, [vistaActual, esCallCenter, service, handleAuthError, handleError]); 
 
+  // ==========================================
+  // EFECTO PRINCIPAL (TRIGGERS)
+  // ==========================================
+  
   useEffect(() => {
     isMountedRef.current = true;
     fetchUsuarios();
+    
     return () => { 
       isMountedRef.current = false;
       if (activeRequestRef.current) activeRequestRef.current.abort();
     };
-  }, [fetchUsuarios]);
+    
+    // 🛑 CORRECTO: Solo reacciona si cambia la vista ('APP'/'ADMIN') o si forzamos recarga (reloadKey)
+    // fetchUsuarios es estable gracias al useCallback corregido
+  }, [fetchUsuarios, reloadKey]);
 
   // ==========================================
   // HANDLERS
@@ -254,17 +254,17 @@ const Profile: React.FC<ProfileProps> = ({
     
     if (esCallCenter) return;
 
-    // Sin loadingDetails para evitar unused vars, solo abrimos modal
     setUsuarioModal(mapUsuarioTablaToModal(user)); 
     setShowDetailsModal(true);
 
     try {
       const { success, json } = await service.obtenerUsuarioDetallesAdmin(user.id);
       if (success) {
-        // ✅ CORRECCIÓN: Acceso seguro a propiedades usando casteo opcional o inferencia del servicio
-        const raw = json.data || (json as any).user;
+        const jsonTyped = json as { data?: unknown; user?: unknown };
+        const raw = jsonTyped.data || jsonTyped.user;
+        
         if (raw && isMountedRef.current) {
-          setUsuarioModal(mapUsuarioDetalleToModal(raw, user));
+          setUsuarioModal(mapUsuarioDetalleToModal(raw as Record<string, unknown>, user));
         }
       }
     } catch (error) {
@@ -293,7 +293,7 @@ const Profile: React.FC<ProfileProps> = ({
         ui.alert("Acción realizada con éxito");
         setSelectedUserIds([]);
         setCurrentMode("NONE");
-        fetchUsuarios();
+        setReloadKey(prev => prev + 1); // ✅ Recarga segura usando el key
       } else {
         ui.alert(`Error: ${result?.json.message}`);
       }
@@ -303,7 +303,7 @@ const Profile: React.FC<ProfileProps> = ({
     } finally {
       if (isMountedRef.current) setIsGlobalBusy(false);
     }
-  }, [selectedUserIds, currentMode, listaUsuarios, vistaActual, service, ui, logger, fetchUsuarios]);
+  }, [selectedUserIds, currentMode, listaUsuarios, vistaActual, service, ui, logger]);
 
   const handleLogout = useCallback(() => {
     localStorage.clear();
@@ -319,6 +319,10 @@ const Profile: React.FC<ProfileProps> = ({
     setInternalOK(true);
     setShowInternalCenterModal(false);
   };
+
+  const handleUserCreated = useCallback(() => {
+      setReloadKey(prev => prev + 1); // ✅ Callback estable para ControlPanel
+  }, []);
 
   // ==========================================
   // RENDERIZADO
@@ -357,7 +361,7 @@ const Profile: React.FC<ProfileProps> = ({
             onExecuteAction={handleExecuteMassAction}
             onLogout={handleLogout}
             onBack={() => navigate("/")}
-            onUserCreated={fetchUsuarios}
+            onUserCreated={handleUserCreated}
           />
 
           <div style={styles.tableCard}>
@@ -382,7 +386,7 @@ const Profile: React.FC<ProfileProps> = ({
                     <td colSpan={8} style={styles.errorContainer}>
                       {errorMsg}
                       <br/>
-                      <button style={styles.retryBtn} onClick={fetchUsuarios}>Reintentar</button>
+                      <button style={styles.retryBtn} onClick={() => setReloadKey(p => p + 1)}>Reintentar</button>
                     </td>
                   </tr>
                 ) : listaUsuarios.length === 0 ? (
