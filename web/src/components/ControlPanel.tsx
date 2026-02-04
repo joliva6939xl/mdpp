@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-// ✅ CORRECCIÓN 1: Separación de imports de valor y de tipo
 import { adminService } from "../services/adminService";
 import type { UserTarget, ServiceResponse } from "../services/adminService";
 
@@ -8,8 +7,8 @@ import type { UserTarget, ServiceResponse } from "../services/adminService";
 // ==========================================
 
 const DEFAULT_ADMIN_PASSWORD = "123456";
-const DNI_REGEX = /^\d{8}$/; // Exactamente 8 dígitos
-const CEL_REGEX = /^\d{9}$/; // Exactamente 9 dígitos (Estándar Perú)
+const DNI_REGEX = /^\d{8}$/;
+const CEL_REGEX = /^\d{9}$/;
 
 const generarUsuarioHelper = (nombre: string): string => {
   if (!nombre.trim()) return "";
@@ -25,28 +24,42 @@ const generarUsuarioHelper = (nombre: string): string => {
 
 export type SelectionMode = "DELETE" | "BLOCK" | "UNBLOCK" | "NONE";
 
-interface CreateAppUserDTO {
-  nombre: string; usuario: string; dni: string;
-  celular: string; cargo: string; contrasena: string;
-}
-
 interface CreateAdminUserDTO {
   nombre: string; usuario: string; contrasena: string; rol: string;
   puede_crear_parte: boolean; puede_borrar_parte: boolean;
   puede_cerrar_parte: boolean; puede_ver_estadisticas_descargar: boolean;
 }
 
-// Mapper APP
-const buildAppPayload = (form: CreateFormState, generatedLogin: string): CreateAppUserDTO => ({
-  nombre: form.nombre.toUpperCase(),
-  usuario: form.usuario.trim() || generatedLogin,
-  dni: form.dni.trim(),
-  celular: form.celular.trim(),
-  cargo: form.cargo.toUpperCase(),
-  contrasena: form.dni.trim()
-});
+// ✅ MAPPER APP ACTUALIZADO CON NUEVOS CAMPOS
+const buildAppFormData = (form: CreateFormState, generatedLogin: string): FormData => {
+  const formData = new FormData();
+  formData.append("nombre", form.nombre.toUpperCase());
+  formData.append("usuario", form.usuario.trim() || generatedLogin);
+  formData.append("dni", form.dni.trim());
+  formData.append("celular", form.celular.trim());
+  formData.append("cargo", form.cargo.toUpperCase());
+  formData.append("contrasena", form.dni.trim()); // Pass por defecto es el DNI
+  
+  formData.append("direccion_actual", form.direccion_actual.toUpperCase());
+  
+  // 🔥 NUEVOS CAMPOS AGREGADOS 🔥
+  formData.append("referencia", form.referencia.toUpperCase());
+  formData.append("ubicacion_gps", form.ubicacion_gps.trim());
 
-// Mapper ADMIN
+  formData.append("motorizado", String(form.motorizado));
+  formData.append("conductor", String(form.conductor));
+  
+  // FOTOS
+  if (form.foto_perfil) {
+    formData.append("foto", form.foto_perfil);
+  }
+  if (form.foto_licencia) {
+    formData.append("foto_licencia", form.foto_licencia);
+  }
+
+  return formData;
+};
+
 const buildAdminPayload = (form: CreateFormState, generatedLogin: string): CreateAdminUserDTO => ({
   nombre: form.nombre.toUpperCase(),
   usuario: form.usuario.trim() || generatedLogin,
@@ -66,12 +79,33 @@ export interface CreateFormState {
   tipo: UserTarget;
   nombre: string; usuario: string; dni: string; celular: string;
   cargo: string; password: string; rolAdmin: string;
+  
+  // CAMPOS APP
+  direccion_actual: string;
+  referencia: string;       // <--- NUEVO
+  ubicacion_gps: string;    // <--- NUEVO
+  
+  motorizado: boolean;
+  conductor: boolean;
+  foto_perfil: File | null;
+  foto_licencia: File | null;
+
   permisos: { crear: boolean; borrar: boolean; cerrar: boolean; stats: boolean; };
 }
 
 const INITIAL_FORM_STATE: CreateFormState = {
   tipo: "APP", nombre: "", usuario: "", dni: "", celular: "", cargo: "",
   password: "", rolAdmin: "ADMIN",
+  
+  direccion_actual: "",
+  referencia: "",           // <--- INICIALIZAR
+  ubicacion_gps: "",        // <--- INICIALIZAR
+  
+  motorizado: false,
+  conductor: false,
+  foto_perfil: null,
+  foto_licencia: null,
+
   permisos: { crear: true, borrar: false, cerrar: false, stats: false }
 };
 
@@ -87,15 +121,12 @@ export interface ControlPanelProps {
   isSelectionModeActive: boolean;
   currentMode: SelectionMode;
   currentUserTarget: UserTarget;
-  
   isGlobalBusy?: boolean; 
-
   onUserTargetChange: (value: UserTarget) => void;
   onSelectModeChange: (mode: SelectionMode) => void;
   onExecuteAction: () => void;
   onLogout: () => void;
   onBack: () => void;
-
   onUserCreated: () => void;
   onCreateError?: (msg: string) => void;
 }
@@ -123,8 +154,7 @@ const ControlPanelContent: React.FC<PresenterProps> = ({
   errors, submissionStatus, serverMessage, onSubmitCreate, onConfirmMassAction
 }) => {
 
-  // ✅ CORRECCIÓN 3: Tipado estricto (string) en lugar de any
-  const update = (field: keyof CreateFormState, value: string) => {
+  const update = (field: keyof CreateFormState, value: string | boolean | File | null) => {
     setFormState(prev => ({ ...prev, [field]: value }));
   };
 
@@ -163,6 +193,13 @@ const ControlPanelContent: React.FC<PresenterProps> = ({
       background: hasError ? '#fff7f7' : 'white',
       outline: 'none'
     }),
+    fileInput: {
+        width: '100%', padding: '10px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8, cursor: 'pointer', fontSize: '13px'
+    },
+    checkboxLabel: {
+        display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 600, color: '#334155', cursor: 'pointer',
+        background: '#f1f5f9', padding: '10px 15px', borderRadius: '8px', border: '1px solid #e2e8f0'
+    },
     feedbackBox: (type: 'success' | 'error') => ({
       marginTop: 15, padding: 12, borderRadius: 8, fontSize: 13, fontWeight: 500,
       background: type === 'success' ? '#f0fdf4' : '#fef2f2',
@@ -212,12 +249,13 @@ const ControlPanelContent: React.FC<PresenterProps> = ({
           <h4 style={{marginTop:0, color:'#1e3a8a'}}>Registrar Nuevo Usuario {formState.tipo}</h4>
           
           <div style={{display:'flex', gap:10, marginBottom:15}}>
-            {/* Como update ahora espera string, usamos "APP" y "ADMIN" directamente, que son strings válidos para UserTarget */}
             <button disabled={isUIBlocked} style={s.tab(formState.tipo === 'APP')} onClick={() => update('tipo', 'APP')}>App Móvil</button>
             <button disabled={isUIBlocked} style={s.tab(formState.tipo === 'ADMIN')} onClick={() => update('tipo', 'ADMIN')}>Panel Web</button>
           </div>
 
-          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap: 15}}>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(250px, 1fr))', gap: 15}}>
+            
+            {/* CAMPOS COMUNES */}
             <div>
               <input disabled={isUIBlocked} placeholder="Nombre Completo" value={formState.nombre} onChange={e=>update('nombre', e.target.value)} style={s.input(!!errors.nombre)} />
               {errors.nombre && <div style={s.errorText}>⚠ {errors.nombre}</div>}
@@ -228,8 +266,28 @@ const ControlPanelContent: React.FC<PresenterProps> = ({
               {errors.usuario && <div style={s.errorText}>⚠ {errors.usuario}</div>}
             </div>
 
+            {/* CAMPOS ESPECÍFICOS APP */}
             {formState.tipo === 'APP' ? (
               <>
+                {/* FOTO DE PERFIL */}
+                <div style={{gridColumn: '1 / -1', background:'#fff', padding:15, borderRadius:8, border:'1px solid #cbd5e1'}}>
+                    <label style={{display:'block', marginBottom:5, fontSize:12, fontWeight:700, color:'#1e3a8a'}}>📸 FOTO DE PERFIL (OBLIGATORIO)</label>
+                    <input 
+                        type="file" 
+                        accept="image/*"
+                        disabled={isUIBlocked}
+                        onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                                update('foto_perfil', e.target.files[0]);
+                            }
+                        }}
+                        style={s.fileInput}
+                    />
+                    <div style={{fontSize:11, color:'#64748b', marginTop:4}}>
+                        {formState.foto_perfil ? `✅ Archivo seleccionado: ${formState.foto_perfil.name}` : "Ningún archivo seleccionado"}
+                    </div>
+                </div>
+
                 <div>
                    <input disabled={isUIBlocked} placeholder="DNI (8 dígitos)" maxLength={8} value={formState.dni} onChange={e=>update('dni', e.target.value)} style={s.input(!!errors.dni)} />
                    {errors.dni && <div style={s.errorText}>⚠ {errors.dni}</div>}
@@ -242,8 +300,54 @@ const ControlPanelContent: React.FC<PresenterProps> = ({
                    <input disabled={isUIBlocked} placeholder="Cargo" value={formState.cargo} onChange={e=>update('cargo', e.target.value)} style={s.input(!!errors.cargo)} />
                    {errors.cargo && <div style={s.errorText}>⚠ {errors.cargo}</div>}
                 </div>
+                
+                {/* UBICACIÓN */}
+                <div>
+                   <input disabled={isUIBlocked} placeholder="Dirección Actual" value={formState.direccion_actual} onChange={e=>update('direccion_actual', e.target.value)} style={s.input(false)} />
+                </div>
+                {/* 🔥 NUEVOS CAMPOS */}
+                <div>
+                   <input disabled={isUIBlocked} placeholder="Referencia" value={formState.referencia} onChange={e=>update('referencia', e.target.value)} style={s.input(false)} />
+                </div>
+                <div>
+                   <input disabled={isUIBlocked} placeholder="Ubicación GPS (Lat, Long)" value={formState.ubicacion_gps} onChange={e=>update('ubicacion_gps', e.target.value)} style={s.input(false)} />
+                </div>
+                
+                {/* Checkboxes Motorizado / Conductor */}
+                <div style={{gridColumn:'1 / -1', display:'flex', gap:'15px', flexWrap:'wrap'}}>
+                    <label style={s.checkboxLabel}>
+                        <input type="checkbox" checked={formState.motorizado} onChange={e=>update('motorizado', e.target.checked)} disabled={isUIBlocked} />
+                        🛵 Motorizado
+                    </label>
+                    <label style={s.checkboxLabel}>
+                        <input type="checkbox" checked={formState.conductor} onChange={e=>update('conductor', e.target.checked)} disabled={isUIBlocked} />
+                        🚙 Conductor
+                    </label>
+                </div>
+
+                {/* Subida de Licencia */}
+                {(formState.conductor || formState.motorizado) && (
+                    <div style={{gridColumn:'1 / -1', background:'#fff', padding:15, borderRadius:8, border:'1px solid #cbd5e1'}}>
+                        <label style={{display:'block', marginBottom:5, fontSize:12, fontWeight:700, color:'#475569'}}>🚙 FOTO LICENCIA DE CONDUCIR</label>
+                        <input 
+                            type="file" 
+                            accept="image/*"
+                            disabled={isUIBlocked}
+                            onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                    update('foto_licencia', e.target.files[0]);
+                                }
+                            }}
+                            style={s.fileInput}
+                        />
+                        <div style={{fontSize:11, color:'#64748b', marginTop:4}}>
+                            {formState.foto_licencia ? `✅ Archivo seleccionado: ${formState.foto_licencia.name}` : "Ningún archivo seleccionado"}
+                        </div>
+                    </div>
+                )}
               </>
             ) : (
+              // CAMPOS ADMIN
               <>
                 <div><input disabled={isUIBlocked} type="password" placeholder={`Pass (Def: ${DEFAULT_ADMIN_PASSWORD})`} value={formState.password} onChange={e=>update('password', e.target.value)} style={s.input(false)} /></div>
                 <div><input disabled={isUIBlocked} placeholder="Rol" value={formState.rolAdmin} onChange={e=>update('rolAdmin', e.target.value)} style={s.input(false)} /></div>
@@ -251,6 +355,7 @@ const ControlPanelContent: React.FC<PresenterProps> = ({
             )}
           </div>
 
+          {/* PERMISOS ADMIN */}
           {formState.tipo === 'ADMIN' && (
             <div style={{marginTop:15, background:'white', padding:15, borderRadius:8, border:'1px solid #e2e8f0', display:'flex', gap:20, flexWrap:'wrap', fontSize:13}}>
               <label><input disabled={isUIBlocked} type="checkbox" checked={formState.permisos.crear} onChange={e=>updatePermiso('crear', e.target.checked)}/> Crear Parte</label>
@@ -339,14 +444,15 @@ const ControlPanel: React.FC<ControlPanelProps> = (props) => {
 
     try {
       const payload = formState.tipo === "APP" 
-        ? buildAppPayload(formState, generatedLogin)
+        ? buildAppFormData(formState, generatedLogin)
         : buildAdminPayload(formState, generatedLogin);
 
       const result: ServiceResponse = await adminService.crearUsuarioSistema(payload, formState.tipo);
 
       if (result.success) {
         setStatus('success');
-        setServerMessage(`Usuario ${payload.usuario} creado.`);
+        const loginUsed = formState.usuario.trim() || generatedLogin;
+        setServerMessage(`Usuario ${loginUsed} creado.`);
         if (props.onUserCreated) props.onUserCreated();
         
         setTimeout(() => {

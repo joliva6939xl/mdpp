@@ -1,4 +1,3 @@
-// Archivo: mdpp/api/src/controllers/authAdmin.controller.js
 const pool = require("../config/db");
 const bcrypt = require("bcryptjs");
 
@@ -6,7 +5,7 @@ const bcrypt = require("bcryptjs");
 const looksLikeBcrypt = (v) =>
   typeof v === "string" && (v.startsWith("$2a$") || v.startsWith("$2b$") || v.startsWith("$2y$"));
 
-/** Valida password: si está hasheado => bcrypt.compare, si no => comparación exacta */
+/** Valida password */
 const verifyPassword = async (stored, input) => {
   const db = String(stored ?? "").trim();
   const inPass = String(input ?? "").trim();
@@ -18,7 +17,7 @@ const verifyPassword = async (stored, input) => {
   return db === inPass;
 };
 
-// 1) REGISTRAR ADMIN (tabla administradores) (no lo tocamos aquí)
+// 1) REGISTRAR ADMIN
 const registrarAdmin = async (req, res) => {
   try {
     const { nombre_usuario, password, rol } = req.body;
@@ -43,7 +42,7 @@ const registrarAdmin = async (req, res) => {
   }
 };
 
-// 2) LOGIN ADMIN (tabla administradores) (sin token)
+// 2) LOGIN ADMIN
 const loginAdmin = async (req, res) => {
   try {
     const userInput = req.body.nombre_usuario || req.body.usuario;
@@ -78,8 +77,7 @@ const loginAdmin = async (req, res) => {
   }
 };
 
-// ✅ 3) LOGIN UNIVERSAL (GERENCIA + APP + ADMINISTRADORES)
-// Este es el que debes usar desde la web: POST /api/admin/login
+// ✅ 3) LOGIN UNIVERSAL (CORREGIDO CON NUEVOS CAMPOS)
 const loginUniversal = async (req, res) => {
   try {
     const userInput =
@@ -99,29 +97,14 @@ const loginUniversal = async (req, res) => {
       return res.status(400).json({ ok: false, message: "Faltan credenciales." });
     }
 
-    // 1) GERENCIA (gerencia_usuarios)
+    // 1) GERENCIA
     const rGer = await pool.query(
-      `SELECT
-        id,
-        nombre_usuario,
-        password_hash,
-        rol,
-        creado_en,
-        estado,
-        bloqueo_motivo,
-        puede_crear_parte,
-        puede_borrar_parte,
-        puede_cerrar_parte,
-        puede_ver_estadisticas_descargar
-      FROM gerencia_usuarios
-      WHERE LOWER(nombre_usuario) = LOWER($1)
-      LIMIT 1`,
+      `SELECT * FROM gerencia_usuarios WHERE LOWER(nombre_usuario) = LOWER($1) LIMIT 1`,
       [String(userInput)]
     );
 
     if (rGer.rows.length > 0) {
       const u = rGer.rows[0];
-
       if (String(u.estado || "").toUpperCase() === "BLOQUEADO") {
         return res.status(403).json({
           ok: false,
@@ -149,19 +132,12 @@ const loginUniversal = async (req, res) => {
       });
     }
 
-    // 2) APP (usuarios)
+    // 2) APP (usuarios) - 🔥 AGREGADOS CAMPOS REFERENCIA Y GPS 🔥
     const rApp = await pool.query(
       `SELECT
-        id,
-        nombre,
-        usuario,
-        contrasena,
-        cargo,
-        dni,
-        celular,
-        foto_ruta,
-        estado,
-        bloqueo_motivo
+        id, nombre, usuario, contrasena, cargo, dni, celular, foto_ruta, estado, bloqueo_motivo,
+        foto_licencia, motorizado, conductor, direccion_actual,
+        referencia, ubicacion_gps  -- <--- AGREGADOS
       FROM usuarios
       WHERE LOWER(usuario) = LOWER($1)
       LIMIT 1`,
@@ -194,16 +170,16 @@ const loginUniversal = async (req, res) => {
           celular: u.celular,
           foto_ruta: u.foto_ruta,
           estado: u.estado,
+          // Nuevos
+          referencia: u.referencia,
+          ubicacion_gps: u.ubicacion_gps
         },
       });
     }
 
-    // 3) ADMINISTRADORES (tabla administradores)
+    // 3) ADMINISTRADORES
     const rAdm = await pool.query(
-      `SELECT id, nombre_usuario, password_hash, rol
-       FROM administradores
-       WHERE LOWER(nombre_usuario) = LOWER($1)
-       LIMIT 1`,
+      `SELECT * FROM administradores WHERE LOWER(nombre_usuario) = LOWER($1) LIMIT 1`,
       [String(userInput)]
     );
 
@@ -227,8 +203,7 @@ const loginUniversal = async (req, res) => {
   }
 };
 
-// (resto de funciones tal cual tengas en tu proyecto)
-// LISTAR USUARIOS APP
+// LISTAR USUARIOS APP (SELECT * trae todo, debería funcionar si se reinicia el server)
 const listarUsuariosApp = async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM usuarios ORDER BY id DESC");
@@ -239,24 +214,10 @@ const listarUsuariosApp = async (req, res) => {
   }
 };
 
-// LISTAR USUARIOS ADMIN (GERENCIA)
+// LISTAR USUARIOS ADMIN
 const listarUsuariosAdmin = async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT
-        id,
-        nombre_usuario,
-        rol,
-        creado_en,
-        estado,
-        bloqueo_motivo,
-        puede_crear_parte,
-        puede_borrar_parte,
-        puede_cerrar_parte,
-        puede_ver_estadisticas_descargar
-      FROM gerencia_usuarios
-      ORDER BY id DESC`
-    );
+    const result = await pool.query("SELECT * FROM gerencia_usuarios ORDER BY id DESC");
     return res.json({ ok: true, usuarios: result.rows });
   } catch (error) {
     console.error(error);
@@ -294,6 +255,7 @@ const deleteUsuarios = async (req, res) => {
   }
 };
 
+// ✅ OBTENER DETALLE USUARIO (CORREGIDO: AGREGADOS REFERENCIA Y GPS)
 const getUsuarioDetails = async (req, res) => {
   try {
     const { id } = req.params;
@@ -309,13 +271,21 @@ const getUsuarioDetails = async (req, res) => {
         creado_en,
         estado,
         bloqueo_motivo,
-        foto_ruta
+        foto_ruta,
+        foto_licencia,
+        motorizado,
+        conductor,
+        direccion_actual,
+        -- 🔥 AQUÍ FALTABAN ESTOS CAMPOS:
+        referencia,
+        ubicacion_gps
       FROM usuarios
       WHERE id = $1`,
       [id]
     );
 
     if (result.rows.length === 0) {
+      // Fallback para buscar en gerencia
       result = await pool.query(
         `SELECT
           id,
@@ -389,7 +359,7 @@ const toggleBloqueoUsuario = async (req, res) => {
 module.exports = {
   registrarAdmin,
   loginAdmin,
-  loginUniversal, // ✅ NUEVO
+  loginUniversal,
   listarUsuariosApp,
   listarUsuariosAdmin,
   deleteUsuarios,

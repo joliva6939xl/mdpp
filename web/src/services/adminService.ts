@@ -35,16 +35,12 @@ export interface ApiResponse<T = any> {
   ok: boolean;
   message?: string;
   data?: T;
-  
-  // Propiedades variables del backend
   usuarios?: T;
   partes?: T;
   parte?: T;
   detalle?: T;
   stats?: T;
   error?: string;
-  
-  // Campos normalizados
   user?: any;       
   usuario?: any;
   archivos?: any[];
@@ -62,7 +58,7 @@ export interface ServiceResponse<T = any> {
 }
 
 // ==========================================
-// 2. CORE: HTTP CLIENT (Con soporte de Signal)
+// 2. CORE: HTTP CLIENT
 // ==========================================
 
 const getHeaders = (isFormData = false) => {
@@ -70,22 +66,34 @@ const getHeaders = (isFormData = false) => {
   const headers: HeadersInit = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (!isFormData) headers["Content-Type"] = "application/json";
+  
+  // ANTI-CACHE
+  headers["Cache-Control"] = "no-cache";
+  headers["Pragma"] = "no-cache";
+  headers["Expires"] = "0";
+  
   return headers;
 };
 
-// ✅ Modificado para aceptar AbortSignal
 export async function requestJson<T>(
   endpoint: string,
   method: "GET" | "POST" | "PUT" | "DELETE" = "GET",
   body?: any,
   isFormData: boolean = false,
-  signal?: AbortSignal // <--- Nuevo parámetro para cancelar peticiones
+  signal?: AbortSignal
 ): Promise<ServiceResponse<T>> {
   
+  let finalUrl = `${API_URL}${endpoint}`;
+  // Cache buster solo para GET
+  if (method === "GET") {
+    const separator = finalUrl.includes("?") ? "&" : "?";
+    finalUrl = `${finalUrl}${separator}nocache=${Date.now()}`;
+  }
+
   const config: RequestInit = {
     method,
     headers: getHeaders(isFormData),
-    signal // <--- Se pasa al fetch nativo
+    signal
   };
 
   if (body) {
@@ -93,24 +101,20 @@ export async function requestJson<T>(
   }
 
   try {
-    const resp = await fetch(`${API_URL}${endpoint}`, config);
+    const resp = await fetch(finalUrl, config);
     let json: ApiResponse<T>;
     
     try {
       json = await resp.json();
     } catch {
-      json = { ok: false, message: "Error crítico: Respuesta inválida del servidor." };
+      json = { ok: false, message: "Error crítico: Respuesta inválida." };
     }
     
     const isSuccess = resp.ok && (json.ok !== false); 
     return { resp, json, success: isSuccess };
 
   } catch (error: any) {
-    if (error.name === 'AbortError') {
-       // Silenciosamente ignoramos cancelaciones
-       console.log('Petición cancelada:', endpoint);
-       throw error; 
-    }
+    if (error.name === 'AbortError') throw error; 
     console.error(`🚨 Error [${method} ${endpoint}]:`, error);
     return {
       resp: null,
@@ -124,9 +128,8 @@ export async function requestJson<T>(
 // 3. SERVICIO DE USUARIOS
 // ==========================================
 
-// ✅ Acepta signal opcional
 export const obtenerUsuariosSistema = async (tipo: UserTarget, signal?: AbortSignal) => {
-  // Rutas en ESPAÑOL (Backend)
+  // ✅ CORRECCIÓN: Rutas restauradas al ESPAÑOL (Backend original)
   const endpoint = tipo === "ADMIN" ? "/admin/usuarios-admin" : "/admin/usuarios-app";
   
   const { resp, json, success } = await requestJson<UsuarioSistema[]>(endpoint, "GET", null, false, signal);
@@ -138,50 +141,52 @@ export const obtenerUsuariosSistema = async (tipo: UserTarget, signal?: AbortSig
   return { resp, json, success };
 };
 
-// ✅ Acepta signal opcional
 export const obtenerUsuarioDetallesAdmin = async (id: number, signal?: AbortSignal) => {
-  // Ruta en ESPAÑOL (Backend)
+  // ✅ CORRECCIÓN: Ruta español
   const res = await requestJson<any>(`/admin/usuario-details/${id}`, "GET", null, false, signal);
   res.json.data = res.json.user || res.json.usuario || res.json.data;
   return res;
 };
 
 export const crearUsuarioSistema = async (data: any, target: UserTarget) => {
-  // Rutas de creación
-  const endpoint = target === "APP" ? "/auth/register" : "/admin/register-admin";
-  return await requestJson(endpoint, "POST", data);
+  const endpoint = target === "APP" ? "/auth/register" : "/admin/create-admin";
+  // ✅ DETECCIÓN AUTOMÁTICA: Si 'data' es FormData, activamos el flag de archivos (true)
+  const isFormData = data instanceof FormData;
+  return await requestJson(endpoint, "POST", data, isFormData);
 };
-
-// ---------------------------------------------------------
-// 3.1 ACCIONES CRÍTICAS
-// ---------------------------------------------------------
 
 export const eliminarUsuariosSeleccionados = async (usuarios: UsuarioPayload[]) => {
   if (!usuarios.length) return { success: false, json: { ok: false, message: "Sin selección" }, resp: null };
-  return await requestJson("/admin/delete-usuarios", "DELETE", { usuarios });
+  // ✅ CORRECCIÓN: Ruta español '/admin/delete-usuarios' y key 'users'
+  return await requestJson("/admin/delete-usuarios", "DELETE", { users: usuarios });
 };
 
 export const eliminarUsuario = async (id: number, tipo: UserTarget) => {
   return await requestJson("/admin/delete-usuarios", "DELETE", { 
-      usuarios: [{ id, tipo }] 
+      users: [{ id, tipo }] 
   });
 };
 
-export const bloqueoUsuarios = async (ids: number[], accion: ActionType, motivo?: string) => {
+// 🔥 BLOQUEO DE USUARIOS 🔥
+export const bloqueoUsuarios = async (usuarios: UsuarioPayload[], accion: ActionType, motivo?: string) => {
+  // Traducimos la acción al Español que espera el backend
+  const accionBackend = accion === "BLOCK" ? "BLOQUEAR" : "DESBLOQUEAR";
+
   return await requestJson("/admin/toggle-bloqueo", "POST", { 
-    ids, 
-    accion, 
+    users: usuarios, // Backend espera 'users'
+    accion: accionBackend, // Backend espera 'BLOQUEAR'
     motivo: motivo || "Gestión administrativa" 
   });
 };
 
-// Wrappers individuales
-export const bloquearUsuario = async (id: number, motivo?: string) => bloqueoUsuarios([id], "BLOCK", motivo);
-export const desbloquearUsuario = async (id: number) => bloqueoUsuarios([id], "UNBLOCK");
+export const bloquearUsuario = async (id: number, tipo: UserTarget, motivo?: string) => 
+    bloqueoUsuarios([{id, tipo}], "BLOCK", motivo);
 
+export const desbloquearUsuario = async (id: number, tipo: UserTarget) => 
+    bloqueoUsuarios([{id, tipo}], "UNBLOCK");
 
 // ==========================================
-// 4. SERVICIO DE PARTES
+// 4. SERVICIOS RESTANTES
 // ==========================================
 
 export const obtenerUsuarioPartesAdmin = async (userId: number) => {
@@ -212,26 +217,16 @@ export const listarPartes = async (filtros = "") => requestJson(`/partes${filtro
 export const crearParte = async (formData: FormData) => requestJson("/partes", "POST", formData, true);
 export const cerrarParte = async (id: number, horaFin?: string) => requestJson(`/partes/cerrar/${id}`, "PUT", { hora_fin: horaFin });
 export const actualizarParte = async (id: number, data: any) => requestJson(`/partes/${id}`, "PUT", data);
-
-// ==========================================
-// 5. REPORTES
-// ==========================================
-
 export const obtenerEstadisticas = async (f: string, t: string) => {
     const { json, ...rest } = await requestJson(`/partes/callcenter/stats?fecha=${f}&turno=${t}`, "GET");
     if (json.stats && !json.data) json.data = json.stats;
     return { json, ...rest };
 };
-
 export const obtenerMetricasZonales = async () => {
     const { json, ...rest } = await requestJson("/partes/metricas/zonales", "GET");
     if (json.stats && !json.data) json.data = json.stats;
     return { json, ...rest };
 };
-
-// ==========================================
-// 6. EXPORT UNIFICADO
-// ==========================================
 
 export const adminService = {
   requestJson,

@@ -8,7 +8,6 @@ const usuariosRoutes = require("./routes/usuarios.routes");
 const authRoutes = require("./routes/auth.routes");
 const authAdminRoutes = require("./routes/authAdmin.routes");
 const partesRoutes = require("./routes/partes.routes");
-// Rutas nuevas que añadimos
 const callcenterRoutes = require("./routes/callcenter.routes");
 const reportesExternosRoutes = require("./routes/reportesExternos.routes");
 
@@ -16,25 +15,28 @@ const app = express();
 
 // 2. Middlewares
 app.use(morgan("dev"));
-app.use(cors({ origin: "*" }));
+app.use(cors({ origin: "*" })); // Permite acceso total
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// 3. Configuración de Imágenes
-const carpetaSrc = path.join(__dirname, "uploads");
-const carpetaRoot = path.join(__dirname, "../uploads");
-app.use("/uploads", express.static(carpetaSrc));
-app.use("/uploads", express.static(carpetaRoot));
+// 3. ⚠️ CONFIGURACIÓN DE IMÁGENES (REPARADA) ⚠️
+// Configuramos DOS rutas posibles para asegurar que encuentre las fotos antiguas y nuevas
+const uploadsInsideSrc = path.join(__dirname, "uploads");    // mdpp/api/src/uploads
+const uploadsOutsideSrc = path.join(__dirname, "../uploads"); // mdpp/api/uploads
 
-// 4. REGISTRO DE TODAS LAS RUTAS (Aquí estaba el fallo de conexión)
+console.log("📂 Buscando imágenes en:", uploadsInsideSrc);
+console.log("📂 Y también en:", uploadsOutsideSrc);
+
+app.use("/uploads", express.static(uploadsInsideSrc));
+app.use("/uploads", express.static(uploadsOutsideSrc));
+
+// 4. REGISTRO DE TODAS LAS RUTAS
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", authAdminRoutes);
-app.use("/api/partes", partesRoutes);
-app.use("/api/usuarios", usuariosRoutes); // ✅ Permite ver usuarios
-
-// ✅ NUEVAS RUTAS ESENCIALES
-app.use("/api/callcenter", callcenterRoutes);  // Alimenta el tablero
-app.use("/api/exportar", reportesExternosRoutes); // Genera el Word
+app.use("/api/partes", partesRoutes);     // ✅ Esto recupera los Partes Virtuales
+app.use("/api/usuarios", usuariosRoutes); // ✅ Esto permite ver los usuarios
+app.use("/api/callcenter", callcenterRoutes);
+app.use("/api/exportar", reportesExternosRoutes);
 
 // Manejo de errores global
 app.use((err, req, res, next) => {

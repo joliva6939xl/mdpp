@@ -8,9 +8,13 @@ const {
 
 const { userPhotoUpload } = require("../middlewares/upload.middleware");
 
+// ✅ CORRECCIÓN: Usamos .fields() para permitir dos archivos distintos
 router.post(
   "/register",
-  userPhotoUpload.single("foto"),
+  userPhotoUpload.fields([
+    { name: "foto", maxCount: 1 },           // Foto de perfil
+    { name: "foto_licencia", maxCount: 1 }   // Foto de licencia
+  ]),
   registrarUsuario
 );
 
