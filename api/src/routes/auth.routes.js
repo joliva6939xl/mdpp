@@ -1,20 +1,21 @@
 const express = require("express");
 const router = express.Router();
+const { registrarUsuario, loginUsuario } = require("../controllers/auth.controller");
 
-const {
-  registrarUsuario,
-  loginUsuario,
-} = require("../controllers/auth.controller");
+// Importamos el middleware específico de USUARIOS
+const { uploadUsers } = require("../middlewares/upload.middleware");
 
-const { userPhotoUpload } = require("../middlewares/upload.middleware");
-
-// ✅ CORRECCIÓN: Usamos .fields() para permitir dos archivos distintos
+// RUTA REGISTRO APP
 router.post(
-  "/register",
-  userPhotoUpload.fields([
-    { name: "foto", maxCount: 1 },           // Foto de perfil
-    { name: "foto_licencia", maxCount: 1 }   // Foto de licencia
+  "/register", 
+  
+  // Usamos uploadUsers para que guarde físicamente en 'uploads/usuarios'
+  // y habilite la lectura de 'req.files' en el controlador
+  uploadUsers.fields([
+    { name: "foto", maxCount: 1 },
+    { name: "foto_licencia", maxCount: 1 }
   ]),
+  
   registrarUsuario
 );
 

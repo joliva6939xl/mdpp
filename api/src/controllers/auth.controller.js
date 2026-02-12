@@ -1,194 +1,181 @@
-const pool = require('../config/db');
+const pool = require("../config/db");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
-// Helper para generar usuario
-const generarNombreUsuario = (nombreCompleto) => {
-    if (!nombreCompleto) return '';
-    const partes = nombreCompleto.trim().split(/\s+/);
-    const primerNombre = partes[0] || '';
-    const primerApellido = partes[1] || '';
-    return (primerNombre.charAt(0) + primerApellido).toLowerCase();
+const generarToken = (usuario) => {
+  return jwt.sign(
+    { id: usuario.id, usuario: usuario.usuario, rol: usuario.cargo },
+    process.env.JWT_SECRET || "secreto_super_seguro",
+    { expiresIn: "30d" }
+  );
 };
 
+// ==========================================
+// 1. REGISTRAR USUARIO
+// ==========================================
 const registrarUsuario = async (req, res) => {
-    try {
-        console.log("📥 REGISTRO APP - Body:", req.body);
-        
-        // 1. FLEXIBILIDAD EN EL NOMBRE
-        const nombreBody = req.body.nombre || req.body.nombre_completo;
-        
-        // 2. CORRECCIÓN DIRECCIÓN
-        const direccionFinal = req.body.direccion_actual || req.body.direccion || null;
+  try {
 
-        // 🔥 3. NUEVOS CAMPOS (REFERENCIA Y GPS)
-        // Capturamos los datos que envía el frontend
-        const referencia = req.body.referencia || null;
-        const ubicacion_gps = req.body.ubicacion_gps || null;
+console.log("==========================================");
+    console.log("📥 SOLICITUD DE REGISTRO RECIBIDA");
+    console.log("📦 TIPO DE CONTENIDO:", req.headers['content-type']); // ¿Dice multipart/form-data?
+    console.log("📝 DATOS (BODY):", req.body);
+    console.log("📁 ARCHIVOS (FILES):", req.files); // <--- ESTO ES LO CRÍTICO
+    console.log("==========================================");
 
-        const { dni, celular, cargo } = req.body;
+    const { nombre, dni, celular, cargo, direccion_actual, referencia, ubicacion_gps, motorizado, conductor } = req.body;
 
-        // 4. CORRECCIÓN CATEGORÍA
-        let esMotorizado = false;
-        let esConductor = false;
-
-        // Opción A: Texto
-        if (req.body.categoria) {
-            const cat = String(req.body.categoria).toUpperCase().trim();
-            if (cat === 'MOTORIZADO') esMotorizado = true;
-            if (cat === 'CONDUCTOR') esConductor = true;
-        } 
-        // Opción B: Booleanos
-        else {
-            esMotorizado = req.body.motorizado === 'true' || req.body.motorizado === true;
-            esConductor = req.body.conductor === 'true' || req.body.conductor === true;
-        }
-
-        // --- Generación de Usuario y Contraseña ---
-        let usuarioFinal = req.body.usuario;
-        if (!usuarioFinal || usuarioFinal.trim() === '') {
-            usuarioFinal = generarNombreUsuario(nombreBody);
-        }
-
-        let passwordFinal =
-            req.body['contraseña'] ||
-            req.body.contrasena ||
-            req.body.password ||
-            dni;
-
-        if (!nombreBody || !dni || !usuarioFinal || !passwordFinal) {
-            return res.status(400).json({
-                ok: false,
-                message: 'Faltan datos para generar usuario (Nombre, DNI, Pass).'
-            });
-        }
-
-        const passwordClean = String(passwordFinal).trim();
-
-        // --- Manejo de Fotos ---
-        // Foto Perfil
-        let fotoRuta = null;
-        if (req.file) fotoRuta = req.file.filename; // Upload simple
-        else if (req.files && req.files['foto'] && req.files['foto'][0]) fotoRuta = req.files['foto'][0].filename; // Upload fields
-        else fotoRuta = req.body.foto_ruta || null;
-
-        // Foto Licencia
-        let fotoLicencia = null;
-        if (req.files && req.files['foto_licencia'] && req.files['foto_licencia'][0]) {
-            fotoLicencia = req.files['foto_licencia'][0].filename;
-        } else {
-            fotoLicencia = req.body.foto_licencia || null;
-        }
-
-        // --- INSERT ACTUALIZADO CON REFERENCIA Y GPS ---
-        const result = await pool.query(
-            `INSERT INTO usuarios 
-            (nombre, dni, celular, cargo, usuario, contrasena, foto_ruta, estado, 
-             foto_licencia, motorizado, conductor, direccion_actual, referencia, ubicacion_gps)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVO', $8, $9, $10, $11, $12, $13) 
-             RETURNING *`,
-            [
-                nombreBody, 
-                dni, 
-                celular, 
-                cargo, 
-                usuarioFinal, 
-                passwordClean, 
-                fotoRuta, 
-                // Nuevos campos procesados
-                fotoLicencia,
-                esMotorizado,
-                esConductor,
-                direccionFinal,
-                referencia,     // $12
-                ubicacion_gps   // $13
-            ]
-        );
-
-        res.status(201).json({
-            ok: true,
-            message: 'Usuario registrado correctamente',
-            data: result.rows[0]
-        });
-
-    } catch (error) {
-        console.error("❌ ERROR REGISTRO:", error.message);
-        if (error.code === '23505') {
-            return res.status(400).json({ ok: false, message: 'El DNI o Usuario ya existe en el sistema.' });
-        }
-        res.status(500).json({ ok: false, message: 'Error servidor: ' + error.message });
+    // Flexibilidad de nombres
+    const nombreFinal = nombre || req.body.nombre_completo;
+    
+    if (!nombreFinal || !dni || !celular) {
+      return res.status(400).json({ ok: false, message: "Faltan datos obligatorios" });
     }
+
+    const partesNombre = nombreFinal.trim().split(" ");
+    const primerNombre = partesNombre[0].toLowerCase();
+    const apellido = partesNombre.length > 1 ? partesNombre[1].toLowerCase() : "";
+    let usuarioGenerado = (primerNombre.charAt(0) + apellido).replace(/[^a-z0-9]/g, "");
+    
+    if (usuarioGenerado.length < 2) usuarioGenerado = "u" + dni;
+    const contrasena = dni.trim();
+
+    // Lógica de Fotos
+    let rutaFotoPerfil = null;
+    let rutaFotoLicencia = null;
+
+    if (req.files) {
+        if (req.files['foto'] && req.files['foto'].length > 0) {
+            rutaFotoPerfil = `uploads/usuarios/${req.files['foto'][0].filename}`;
+        }
+        if (req.files['foto_licencia'] && req.files['foto_licencia'].length > 0) {
+            rutaFotoLicencia = `uploads/usuarios/${req.files['foto_licencia'][0].filename}`;
+        }
+    }
+    // Fallback texto
+    if (!rutaFotoPerfil && req.body.foto_ruta) rutaFotoPerfil = req.body.foto_ruta;
+
+    const esMotorizado = motorizado === 'true' || motorizado === true;
+    const esConductor = conductor === 'true' || conductor === true;
+
+    const result = await pool.query(
+      `INSERT INTO usuarios 
+      (nombre, dni, celular, cargo, usuario, contrasena, 
+       direccion_actual, referencia, ubicacion_gps, 
+       foto_ruta, foto_licencia, 
+       motorizado, conductor, estado)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'ACTIVO')
+      RETURNING *`,
+      [
+        nombreFinal.toUpperCase(), dni, celular, cargo, usuarioGenerado, contrasena,
+        direccion_actual?.toUpperCase(), referencia?.toUpperCase(), ubicacion_gps,
+        rutaFotoPerfil, rutaFotoLicencia,
+        esMotorizado, esConductor
+      ]
+    );
+
+    const nuevoUsuario = result.rows[0];
+    const token = generarToken(nuevoUsuario);
+
+    return res.status(201).json({
+      ok: true,
+      message: "Usuario creado exitosamente",
+      data: { token, usuario: nuevoUsuario.usuario },
+    });
+
+  } catch (error) {
+    console.error("Error registro:", error);
+    if (error.code === "23505") return res.status(400).json({ ok: false, message: "Usuario/DNI ya existe." });
+    return res.status(500).json({ ok: false, message: "Error al registrar" });
+  }
 };
 
+// ==========================================
+// 2. LOGIN USUARIO (CORREGIDO Ñ vs N)
+// ==========================================
 const loginUsuario = async (req, res) => {
-    try {
-        const { usuario } = req.body;
-        const passInput = req.body['contraseña'] || req.body.contrasena || req.body.password;
+  try {
+    // 🔥 AQUÍ ESTÁ LA SOLUCIÓN:
+    // Buscamos 'contrasena' (backend estándar) O 'contraseña' (lo que manda tu frontend)
+    const usuarioRaw = req.body.usuario;
+    const contrasenaRaw = req.body.contrasena || req.body.contraseña; // <--- EL FIX DE LA Ñ
 
-        if (!usuario || !passInput) return res.status(400).json({ ok: false, message: 'Faltan credenciales.' });
-
-        const result = await pool.query('SELECT * FROM usuarios WHERE usuario = $1', [usuario]);
-        
-        if (result.rows.length === 0) return res.status(404).json({ ok: false, message: 'Usuario no encontrado.' });
-
-        const user = result.rows[0];
-        const dbPass = String(user.contrasena ?? "").trim();
-        const inputPass = String(passInput).trim();
-
-        if (dbPass !== inputPass) return res.status(401).json({ ok: false, message: 'Contraseña incorrecta.' });
-
-        // Determinamos la categoría para devolverla al frontend
-        let categoriaCalculada = "AGENTE"; 
-        if (user.motorizado) categoriaCalculada = "MOTORIZADO";
-        if (user.conductor) categoriaCalculada = "CONDUCTOR";
-
-        res.json({
-            ok: true,
-            message: 'Bienvenido',
-            usuario: {
-                id: user.id,
-                nombre: user.nombre,
-                usuario: user.usuario,
-                cargo: user.cargo,
-                dni: user.dni,
-                celular: user.celular,
-                foto_ruta: user.foto_ruta,
-                estado: user.estado,
-                // Nuevos campos
-                foto_licencia: user.foto_licencia,
-                motorizado: user.motorizado,
-                conductor: user.conductor,
-                direccion_actual: user.direccion_actual,
-                referencia: user.referencia,         // <--- Agregado
-                ubicacion_gps: user.ubicacion_gps,   // <--- Agregado
-                categoria: categoriaCalculada 
-            }
-        });
-
-    } catch (error) {
-        console.error("❌ ERROR LOGIN:", error);
-        res.status(500).json({ ok: false, message: 'Error interno.' });
+    if (!usuarioRaw || !contrasenaRaw) {
+      console.log("❌ Login fallido: Faltan credenciales.");
+      return res.status(400).json({ ok: false, message: "Faltan credenciales" });
     }
+
+    const usuario = String(usuarioRaw).trim();
+    const contrasena = String(contrasenaRaw).trim();
+
+    // 1. Buscamos usuario
+    const result = await pool.query("SELECT * FROM usuarios WHERE usuario = $1", [usuario]);
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ ok: false, message: "Usuario no encontrado" });
+    }
+
+    const user = result.rows[0];
+
+    // 2. Comparamos contraseña (Texto plano, limpiando espacios)
+    const passInput = contrasena;
+    const passDB = String(user.contrasena).trim();
+
+    const esValida = passInput === passDB;
+
+    if (!esValida) {
+      return res.status(400).json({ ok: false, message: "Contraseña incorrecta" });
+    }
+
+    if (user.estado === 'BLOQUEADO') {
+        return res.status(403).json({ ok: false, message: "Usuario bloqueado." });
+    }
+
+    // 3. Calculamos categoría
+    let categoria = "AGENTE"; 
+    if (user.motorizado) categoria = "MOTORIZADO";
+    else if (user.conductor) categoria = "CONDUCTOR";
+    else if ((user.cargo || "").toLowerCase().includes("k9")) categoria = "CANINO";
+
+    const userResponse = { ...user, categoria_calculada: categoria };
+    const token = generarToken(user);
+
+    res.json({
+      ok: true,
+      usuario: userResponse,
+      token,
+    });
+
+  } catch (error) {
+    console.error("Error Login:", error);
+    res.status(500).json({ ok: false, message: "Error interno" });
+  }
 };
 
+// ==========================================
+// 3. EXTRAS
+// ==========================================
 const actualizarFotoPerfil = async (req, res) => {
+    const { id } = req.params;
     try {
-        const { id } = req.params;
-        if (!req.file) return res.status(400).json({ ok: false, message: 'No se envió imagen.' });
-        const fotoRuta = req.file.filename;
-        await pool.query('UPDATE usuarios SET foto_ruta = $1 WHERE id = $2', [fotoRuta, id]);
-        res.json({ ok: true, message: 'Foto actualizada', foto_ruta: fotoRuta });
-    } catch (error) {
-        res.status(500).json({ ok: false, message: 'Error al guardar foto.' });
-    }
+        if (!req.files || !req.files['foto']) return res.status(400).json({ message: "No imagen" });
+        const rutaFoto = `uploads/usuarios/${req.files['foto'][0].filename}`;
+        const result = await pool.query("UPDATE usuarios SET foto_ruta = $1 WHERE id = $2 RETURNING *", [rutaFoto, id]);
+        if (result.rowCount === 0) return res.status(404).json({ message: "Usuario no encontrado" });
+        res.json({ ok: true, usuario: result.rows[0] });
+    } catch (error) { res.status(500).json({ message: "Error update foto" }); }
 };
 
 const listarUsuariosApp = async (req, res) => {
-    const result = await pool.query('SELECT * FROM usuarios ORDER BY id DESC');
-    res.json({ ok: true, usuarios: result.rows });
+    try {
+        const result = await pool.query("SELECT id, nombre, cargo, foto_ruta, estado FROM usuarios ORDER BY nombre ASC");
+        res.json({ ok: true, data: result.rows });
+    } catch (error) { res.status(500).json({ message: "Error listar" }); }
 };
 
 module.exports = {
-    registrarUsuario,
-    loginUsuario,
-    actualizarFotoPerfil,
-    listarUsuariosApp
+  registrarUsuario,
+  loginUsuario,
+  actualizarFotoPerfil,
+  listarUsuariosApp
 };
