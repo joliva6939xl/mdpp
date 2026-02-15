@@ -92,48 +92,88 @@ export default function DetalleParteScreen() {
     }
   }, [id, showAlert]);
 
-  // --- FUNCIÓN PARA CERRAR PARTE ---
+ // --- FUNCIÓN MEJORADA PARA CERRAR PARTE (WEB Y MÓVIL) ---
   const handleCerrarParte = async () => {
-    Alert.alert(
-      "Confirmar Cierre",
-      "¿Estás seguro de finalizar este parte? Se registrará la hora actual.",
-      [
-        { text: "Cancelar", style: "cancel" },
-        { 
-          text: "SÍ, CERRAR", 
-          onPress: async () => {
-            try {
-              setLoadingCierre(true);
-              const session = await obtenerSesion();
-              const res = await fetch(`${API_URL}/partes/cerrar/${parte.id}`, {
+    console.log("🖱️ Botón CERRAR presionado");
+
+    // Lógica principal de cierre (se ejecutará tras confirmar)
+    const ejecutarCierre = async () => {
+        try {
+            setLoadingCierre(true);
+            console.log("⏳ Iniciando petición al backend...");
+
+            const session = await obtenerSesion();
+            if (!session) {
+                alert("Error: No hay sesión activa. Reingresa a la app.");
+                return;
+            }
+
+            console.log("📤 Enviando PUT a:", `${API_URL}/partes/cerrar/${parte.id}`);
+
+            const res = await fetch(`${API_URL}/partes/cerrar/${parte.id}`, {
                 method: 'PUT',
                 headers: { 
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session?.token}`
+                    'Authorization': `Bearer ${session.token}`
                 },
                 body: JSON.stringify({}) 
-              });
-              
-              const data = await res.json();
-              
-              if (data.ok) {
+            });
+            
+            console.log("📡 Status respuesta:", res.status);
+            const data = await res.json();
+            console.log("📦 Respuesta Backend:", data);
+            
+            if (data.ok) {
+                // Actualizamos la vista localmente
                 setParte({ ...parte, hora_fin: data.parte.hora_fin });
-                Alert.alert("Éxito", "El parte ha sido cerrado correctamente.");
-              } else {
-                Alert.alert("Error", "No se pudo cerrar el parte.");
-              }
-            } catch (error) {
-              console.error(error);
-              Alert.alert("Error", "Fallo de conexión con el servidor.");
-            } finally {
-              setLoadingCierre(false);
+                
+                // MOSTRAMOS EL CÁLCULO DE TIEMPO QUE VIENE DEL BACKEND 🧠
+                const mensajeExito = data.message || "Parte cerrado correctamente.";
+                
+                if (Platform.OS === 'web') {
+                    alert("✅ " + mensajeExito);
+                } else {
+                    Alert.alert("¡Éxito!", mensajeExito);
+                }
+            } else {
+                const msgError = data.message || "No se pudo cerrar el parte.";
+                if (Platform.OS === 'web') alert("❌ " + msgError);
+                else Alert.alert("Error", msgError);
             }
-          }
-        }
-      ]
-    );
-  };
 
+        } catch (error) {
+            console.error("🔥 Error en fetch cerrar:", error);
+            const msg = "Error de conexión con el servidor.";
+            if (Platform.OS === 'web') alert(msg);
+            else Alert.alert("Error", msg);
+        } finally {
+            setLoadingCierre(false);
+        }
+    };
+
+    // --- DETECCIÓN DE PLATAFORMA PARA LA CONFIRMACIÓN ---
+    if (Platform.OS === 'web') {
+        // 🌐 EN WEB: Usamos el confirm nativo del navegador
+        const confirmado = window.confirm("¿Estás seguro de finalizar este parte? Se calculará la duración automáticamente.");
+        if (confirmado) {
+            ejecutarCierre();
+        }
+    } else {
+        // 📱 EN MÓVIL: Usamos el Alert nativo bonito
+        Alert.alert(
+            "Confirmar Cierre",
+            "¿Estás seguro de finalizar este parte? Se calculará la duración automáticamente.",
+            [
+                { text: "Cancelar", style: "cancel" },
+                { 
+                    text: "SÍ, CERRAR", 
+                    onPress: ejecutarCierre 
+                }
+            ]
+        );
+    }
+  };
+/////////////////FUNCION PARA ABRIR EL MAPA//////////////
   const abrirMapa = () => {
     if (!parte?.latitud || !parte?.longitud) return;
     

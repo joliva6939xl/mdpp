@@ -1,4 +1,3 @@
-// Archivo: Movil/app/(tabs)/nuevo.tsx
 import React, { useMemo, useState } from "react";
 import {
   StyleSheet,
@@ -13,128 +12,77 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
-  type ViewStyle,
-  type TextStyle,
-  type ImageStyle,
+  StatusBar
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
+import { Ionicons } from "@expo/vector-icons";
 import { obtenerSesion } from "../../utils/session";
-import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
-import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAlert } from "../../context/GlobalAlert";
 
-const API_URL =
-  Platform.OS === "web"
-    ? "http://localhost:4000/api"
-    : "http://10.0.2.2:4000/api";
+const API_URL = Platform.OS === "web" ? "http://localhost:4000/api" : "http://10.0.2.2:4000/api";
 
-type Participante = {
-  nombre: string;
-  dni: string;
-};
+type Participante = { nombre: string; dni: string; cargo: string };
 
-type SelectorItem = string;
-
-// COMPONENTES FUERA
-type SectionProps = {
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-};
-const Section: React.FC<SectionProps> = ({ title, subtitle, children }) => (
-  <View style={styles.card}>
-    <View style={styles.cardHeader}>
-      <Text style={styles.cardTitle}>{title}</Text>
-      {!!subtitle && <Text style={styles.cardSubtitle}>{subtitle}</Text>}
-    </View>
-    {children}
+// --- COMPONENTES UI ---
+const SectionHeader = ({ title }: { title: string }) => (
+  <View style={styles.sectionHeader}>
+    <Text style={styles.sectionTitle}>{title}</Text>
+    <View style={styles.sectionLine} />
   </View>
 );
 
-type FieldLabelProps = { text: string; required?: boolean };
-const FieldLabel: React.FC<FieldLabelProps> = ({ text, required }) => (
+const FieldLabel = ({ text, required }: { text: string; required?: boolean }) => (
   <Text style={styles.label}>
-    {text} {required ? <Text style={styles.req}>*</Text> : null}
+    {text} {required && <Text style={styles.req}>*</Text>}
   </Text>
 );
 
-type SelectorProps = {
-  label: string;
-  value: string;
-  onPress: () => void;
-  placeholder?: string;
-  required?: boolean;
-};
-const Selector: React.FC<SelectorProps> = ({
-  label,
-  value,
-  onPress,
-  placeholder = "Seleccionar",
-  required,
-}) => (
-  <TouchableOpacity style={styles.selector} onPress={onPress} activeOpacity={0.9}>
+const Selector = ({ label, value, onPress, placeholder = "Seleccionar", required }: any) => (
+  <View style={styles.fieldContainer}>
     <FieldLabel text={label} required={required} />
-    <View style={styles.selectorRow}>
-      <Text style={[styles.selectorText, !value ? styles.placeholder : null]}>
+    <TouchableOpacity style={styles.selector} onPress={onPress} activeOpacity={0.8}>
+      <Text style={[styles.selectorText, !value && styles.placeholder]}>
         {value || placeholder}
       </Text>
-      <Text style={styles.selectorArrow}>⌄</Text>
-    </View>
-  </TouchableOpacity>
+      <Ionicons name="chevron-down" size={16} color="#64748B" />
+    </TouchableOpacity>
+  </View>
 );
 
 export default function CrearParteScreen() {
   const router = useRouter();
   const { showAlert } = useAlert();
 
-  const sectores = useMemo(
-    () => Array.from({ length: 13 }, (_, i) => String(i + 1)),
-    []
-  );
+  // DATOS FIJOS
+  const LISTAS = useMemo(() => ({
+    sector: Array.from({ length: 13 }, (_, i) => String(i + 1)),
+    zona: ["NORTE", "CENTRO", "SUR"],
+    turno: ["DIA (06:00 - 18:00)", "NOCHE (18:00 - 06:00)"],
+    unidad_tipo: ["CAMIONETA", "MOTO", "AUTO", "A PIE"],
+    incidencia: [
+        "ROBO A TRANSEUNTE", "CONSUMIDORES DE SUSTANCIAS", "HERIDOS ARMA FUEGO",
+        "HERIDOS ARMA BLANCA", "CHOQUE VEHICULAR", "USURPACION TERRENO",
+        "ROBO VEHICULOS/VIVIENDA", "VIOLENCIA FAMILIAR", "PERSONAS SOSPECHOSAS",
+        "DESASTRES NATURALES", "ALTERACION ORDEN PUBLICO", "MATERIALES PELIGROSOS",
+        "APOYO MEDICO", "PROTECCION ESCOLAR", "OTROS"
+    ],
+    asunto: ["PATRULLAJE", "ALERTA RADIAL", "CÁMARAS", "OPERATIVO", "LLAMADA PNP"],
+    cargos_participantes: ["AMAZONAS", "OPERADOR", "DELTA", "K9", "PARAMEDICA", "ALFA"],
+    // OPCIONES DE MANDO
+    sup_general_opts: ["SUPERVISOR GENERAL", "JEFE DE OPERACIONES"]
+  }), []);
 
-  const LISTAS = useMemo(
-    () => ({
-      sector: sectores,
-      zona: ["norte", "centro", "sur"],
-      turno: ["DIA  06:00 AM - 18:00 PM", "NOCHE 18:00 PM - 06:00 AM"],
-      unidad_tipo: ["OMEGA", "ALFA"],
-      incidencia: [
-        "ROBO A TRANSEUNTE",
-        "CONSUMIDORES DE SUSTANCIAS TOXICAS",
-        "HERIDOS POR ARMA DE FUEGO",
-        "HERIDOS POR ARMA BLANCA",
-        "CHOQUE VEHICULAR",
-        "USURPACION O INVASION DE TERRENO",
-        "ROBO DE VEHICULOS,VIVIENDAS Y OTROS",
-        "VIOLENCIA FAMILIAR",
-        "PERSONAS SOSPECHOSAS",
-        "DESASTRES NATURALES",
-        "ALTERACION DEL ORDEN PUBLICO",
-        "ACCIDENTES CON MATERIALES PELIGROSOS",
-        "APOYO A EMERGENCIAS MEDICAS",
-        "PROTECCION ESCOLAR",
-        "OTROS NO ESPECIFICADOS",
-      ],
-      asunto: [
-        "PATRULLAJE",
-        "ALERTA RADIAL",
-        "CENTRAL DE CAMARAS",
-        "OPERATIVO",
-        "LLAMADA PNP",
-      ],
-    }),
-    [sectores]
-  );
-
+  // ESTADOS
   const [loading, setLoading] = useState(false);
   const [archivos, setArchivos] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [participantes, setParticipantes] = useState<Participante[]>([]);
-
   const [ubicacion, setUbicacion] = useState<{ lat: string; lng: string } | null>(null);
   const [loadingGPS, setLoadingGPS] = useState(false);
+
+  // Estado para controlar qué tipo de mando se seleccionó visualmente
+  const [tipoMandoSeleccionado, setTipoMandoSeleccionado] = useState(""); 
 
   const [form, setForm] = useState({
     parte_fisico: "",
@@ -149,926 +97,548 @@ export default function CrearParteScreen() {
     unidad_numero: "",
     placa: "",
     conductor: "",
-    dni_conductor: "",
+    dni_conductor: "", 
     sumilla: "",
     asunto: "",
     ocurrencia: "",
-    sup_zonal: "",
-    sup_general: "",
+    sup_zonal: "",     
+    sup_general: "",   
   });
 
-  const [selectorVisible, setSelectorVisible] = useState(false);
-  const [selectorCampo, setSelectorCampo] =
-    useState<keyof typeof form | null>(null);
-  const [selectorTitulo, setSelectorTitulo] = useState("");
-  const [selectorOpciones, setSelectorOpciones] = useState<SelectorItem[]>([]);
+  // SELECTOR MODAL
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalData, setModalData] = useState({ 
+      campo: "", 
+      titulo: "", 
+      opciones: [] as string[],
+      participantIndex: -1 
+  });
 
-  const handleChange = (key: keyof typeof form, value: string) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const abrirSelector = (
-    campo: keyof typeof form,
-    titulo: string,
-    opciones: string[]
-  ) => {
-    setSelectorCampo(campo);
-    setSelectorTitulo(titulo);
-    setSelectorOpciones(opciones);
-    setSelectorVisible(true);
+  // HANDLERS
+  const handleChange = (key: string, value: string) => setForm(prev => ({ ...prev, [key]: value }));
+  
+  const abrirSelector = (campo: string, titulo: string, opciones: string[], index: number = -1) => {
+    setModalData({ campo, titulo, opciones, participantIndex: index });
+    setModalVisible(true);
   };
 
   const seleccionarOpcion = (val: string) => {
-    if (selectorCampo) handleChange(selectorCampo, val);
-    setSelectorVisible(false);
+    if (modalData.participantIndex >= 0) {
+        // Lógica para Participantes
+        updateParticipante(modalData.participantIndex, "cargo", val);
+    } else {
+        // ✅ LÓGICA ESPECIAL: SUPERVISOR GENERAL
+        if (modalData.campo === "tipo_mando") {
+            setTipoMandoSeleccionado(val); // Guardamos qué opción eligió visualmente
+            
+            if (val === "JEFE DE OPERACIONES") {
+                // Automático
+                handleChange("sup_general", "MORI TRIGOSO CARLOS");
+            } else {
+                // Manual (Limpiamos para que escriba)
+                handleChange("sup_general", "");
+            }
+        } else {
+            // Campos normales
+            handleChange(modalData.campo, val);
+        }
+    }
+    setModalVisible(false);
   };
 
+  // GPS
   const obtenerUbicacion = async () => {
     setLoadingGPS(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        showAlert({
-          title: "Permiso denegado",
-          message: "Se requiere acceso a la ubicación para geolocalizar el parte.",
-          type: "error",
-        });
-        setLoadingGPS(false);
+        showAlert({ title: "GPS", message: "Permiso denegado.", type: "error" });
         return;
       }
-
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-
-      setUbicacion({
-        lat: String(location.coords.latitude),
-        lng: String(location.coords.longitude),
-      });
-
-      showAlert({
-        title: "Ubicación obtenida",
-        message: "Coordenadas GPS adjuntadas correctamente.",
-        type: "success",
-      });
-    } catch (error) {
-      console.log(error);
-      showAlert({
-        title: "Error GPS",
-        message: "No se pudo obtener la ubicación. Verifique su GPS.",
-        type: "error",
-      });
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setUbicacion({ lat: String(loc.coords.latitude), lng: String(loc.coords.longitude) });
+    } catch {
+      showAlert({ title: "GPS", message: "Error obteniendo ubicación.", type: "error" });
     } finally {
       setLoadingGPS(false);
     }
   };
 
+  // EVIDENCIAS
   const handleFilePick = async () => {
-    const permission =
-      Platform.OS === "web"
-        ? { granted: true }
-        : await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (!permission.granted) {
-      showAlert({
-        title: "Permiso denegado",
-        message: "Se requiere acceso a la galería para adjuntar evidencias.",
-        type: "error",
-      });
-      return;
-    }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsEditing: false,
-      quality: 0.7,
+      quality: 0.5,
       allowsMultipleSelection: true,
     });
-
-    if (!result.canceled) {
-      setArchivos((prev) => [...prev, ...result.assets]);
-    }
+    if (!result.canceled) setArchivos(prev => [...prev, ...result.assets]);
   };
 
-  const agregarParticipante = () => {
-    setParticipantes((prev) => [...prev, { nombre: "", dni: "" }]);
+  // PARTICIPANTES
+  const agregarParticipante = () => setParticipantes(prev => [...prev, { nombre: "", dni: "", cargo: "" }]);
+  
+  const updateParticipante = (index: number, key: keyof Participante, val: string) => {
+    const copy = [...participantes];
+    copy[index] = { ...copy[index], [key]: val };
+    setParticipantes(copy);
   };
 
-  const cambiarParticipante = (
-    index: number,
-    campo: keyof Participante,
-    valor: string
-  ) => {
-    setParticipantes((prev) => {
-      const copia = [...prev];
-      copia[index] = { ...copia[index], [campo]: valor };
-      return copia;
-    });
+  const eliminarParticipante = (index: number) => {
+    const copy = [...participantes];
+    copy.splice(index, 1);
+    setParticipantes(copy);
   };
 
+  // ENVIAR
   const enviarParte = async () => {
     if (!form.parte_fisico || !form.sumilla) {
-      showAlert({
-        title: "Faltan datos",
-        message: "N° Parte y la Incidencia son obligatorios.",
-        type: "error",
-      });
+      showAlert({ title: "Atención", message: "N° Parte e Incidencia son obligatorios.", type: "error" });
       return;
     }
 
     setLoading(true);
-
     try {
       const session = await obtenerSesion();
-      if (!session?.usuario?.id) {
-        showAlert({
-          title: "Error",
-          message: "Sesión inválida.",
-          type: "error",
-        });
+      if (!session || !session.usuario || !session.usuario.id) {
+        showAlert({ title: "Error", message: "Sesión inválida. Reingrese.", type: "error" });
         setLoading(false);
         return;
       }
 
-      let horaInicio = form.hora;
-      if (!horaInicio) {
-        horaInicio = new Date()
-          .toLocaleTimeString("es-PE", { hour12: false })
-          .slice(0, 5);
-      }
-
-      const horaFin = form.hora_fin.trim();
-
       const formData = new FormData();
-      formData.append("parte_fisico", form.parte_fisico);
-      formData.append("fecha", form.fecha);
-      formData.append("hora", horaInicio);
-      formData.append("hora_fin", horaFin);
-      formData.append("sector", form.sector);
-      formData.append("zona", form.zona);
-      formData.append("turno", form.turno);
-      formData.append("lugar", form.lugar);
-      formData.append("unidad_tipo", form.unidad_tipo);
-      formData.append("unidad_numero", form.unidad_numero);
-      formData.append("placa", form.placa);
-      formData.append("conductor", form.conductor);
-      formData.append("dni_conductor", form.dni_conductor);
-      formData.append("sumilla", form.sumilla);
-      formData.append("asunto", form.asunto);
-      formData.append("ocurrencia", form.ocurrencia);
-      formData.append("sup_zonal", form.sup_zonal);
-      formData.append("sup_general", form.sup_general);
+      Object.entries(form).forEach(([key, val]) => formData.append(key, val));
       formData.append("usuario_id", String(session.usuario.id));
       formData.append("participantes", JSON.stringify(participantes));
-
+      
       if (ubicacion) {
         formData.append("latitud", ubicacion.lat);
         formData.append("longitud", ubicacion.lng);
       }
 
-      for (let index = 0; index < archivos.length; index++) {
-        const file = archivos[index];
+      for (let i = 0; i < archivos.length; i++) {
+        const file = archivos[i];
         const isVideo = file.type === "video";
-        const tipoMime = isVideo ? "video/mp4" : "image/jpeg";
-        const ext = isVideo ? ".mp4" : ".jpg";
-        const fileName = `evidencia_${index}${ext}`;
-
-        if (Platform.OS === "web") {
-          try {
-            const resp = await fetch(file.uri);
-            const blob = await resp.blob();
-            formData.append("evidencia", blob, fileName);
-          } catch {
-            // ignorar
-          }
+        const name = `evidencia_${i}${isVideo ? ".mp4" : ".jpg"}`;
+        
+        if (Platform.OS === 'web') {
+            const res = await fetch(file.uri);
+            const blob = await res.blob();
+            formData.append("evidencia", blob, name);
         } else {
-          // @ts-expect-error - FormData RN
-          formData.append("evidencia", {
-            uri: file.uri,
-            name: fileName,
-            type: tipoMime,
-          });
+            // @ts-ignore
+            formData.append("evidencia", { uri: file.uri, name, type: isVideo ? "video/mp4" : "image/jpeg" });
         }
       }
 
-      const response = await fetch(`${API_URL}/partes`, {
+      const res = await fetch(`${API_URL}/partes`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.token}`,
-        },
-        body: formData,
+        headers: { Authorization: `Bearer ${session.token}` },
+        body: formData
       });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        showAlert({
-          title: "Éxito",
-          message: "Parte registrado correctamente.",
-          type: "success",
-        });
-
-        setForm({
-          parte_fisico: "",
-          fecha: new Date().toISOString().split("T")[0],
-          hora: "",
-          hora_fin: "",
-          sector: "",
-          zona: "",
-          turno: "",
-          lugar: "",
-          unidad_tipo: "",
-          unidad_numero: "",
-          placa: "",
-          conductor: "",
-          dni_conductor: "",
-          sumilla: "",
-          asunto: "",
-          ocurrencia: "",
-          sup_zonal: "",
-          sup_general: "",
-        });
-        setArchivos([]);
-        setParticipantes([]);
-        setUbicacion(null);
-
+      
+      const data = await res.json();
+      if (res.ok) {
+        showAlert({ title: "Éxito", message: "Parte registrado ID #" + data.id, type: "success" });
         router.push("/(tabs)/historial");
       } else {
-        showAlert({
-          title: "Error",
-          message: data.message || "No se pudo guardar el parte.",
-          type: "error",
-        });
+        throw new Error(data.message);
       }
-    } catch (error) {
-      console.error(error);
-      showAlert({
-        title: "Error",
-        message: "Fallo de conexión con el servidor.",
-        type: "error",
-      });
+    } catch (e: any) {
+      console.error(e);
+      showAlert({ title: "Error", message: e.message || "Fallo al enviar.", type: "error" });
     } finally {
       setLoading(false);
     }
   };
 
-  const renderOpcion = ({ item }: { item: string }) => (
-    <TouchableOpacity
-      style={styles.modalItem}
-      onPress={() => seleccionarOpcion(item)}
-      activeOpacity={0.9}
-    >
-      <Text style={styles.modalItemText}>{item}</Text>
-      <Text style={styles.modalChevron}>›</Text>
-    </TouchableOpacity>
-  );
-
   return (
-    <ThemedView style={styles.container}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-        >
-          <View style={styles.header}>
-            <ThemedText type="title" style={styles.title}>
-              Nuevo Parte Virtual
-            </ThemedText>
-            <Text style={styles.headerHint}>
-              Municipalidad de Puente Piedra • Vigilancia
-            </Text>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+
+      {/* HEADER */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color="#0F172A" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>NUEVO REPORTE</Text>
+        <View style={{width: 24}}/>
+      </View>
+
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{flex: 1}}>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+
+          {/* SECCIÓN 1: DATOS OPERATIVOS */}
+          <View style={styles.card}>
+            <SectionHeader title="DATOS OPERATIVOS" />
+            
+            <View style={styles.row}>
+                <View style={{flex: 1, marginRight: 8}}>
+                    <FieldLabel text="N° PARTE FÍSICO" required />
+                    <TextInput 
+                        style={styles.input} 
+                        placeholder="Ej: 1024" 
+                        value={form.parte_fisico}
+                        onChangeText={t => handleChange("parte_fisico", t)}
+                        keyboardType="numeric"
+                    />
+                </View>
+                <View style={{flex: 1, marginLeft: 8}}>
+                    <FieldLabel text="HORA INICIO" />
+                    <TextInput 
+                        style={styles.input} 
+                        value={form.hora}
+                        onChangeText={t => handleChange("hora", t)}
+                    />
+                </View>
+            </View>
+
+            <View style={styles.row}>
+                <View style={{flex: 1, marginRight: 8}}>
+                    <Selector label="SECTOR" value={form.sector} onPress={() => abrirSelector("sector", "SECTOR", LISTAS.sector)} required />
+                </View>
+                <View style={{flex: 1, marginLeft: 8}}>
+                    <Selector label="ZONA" value={form.zona} onPress={() => abrirSelector("zona", "ZONA", LISTAS.zona)} />
+                </View>
+            </View>
+
+            <Selector label="TURNO" value={form.turno} onPress={() => abrirSelector("turno", "TURNO", LISTAS.turno)} />
+            
+            <View style={styles.fieldContainer}>
+                <FieldLabel text="LUGAR / DIRECCIÓN" />
+                <TextInput 
+                    style={styles.input} 
+                    placeholder="Referencia exacta"
+                    value={form.lugar}
+                    onChangeText={t => handleChange("lugar", t)}
+                />
+            </View>
           </View>
 
-          <Section
-            title="Datos principales"
-            subtitle="Complete lo esencial para registrar el parte."
-          >
-            <View style={styles.field}>
-              <FieldLabel text="N° Parte Físico" required />
-              <TextInput
-                style={styles.input}
-                placeholder="Ej: 000123"
-                value={form.parte_fisico}
-                onChangeText={(t) => handleChange("parte_fisico", t)}
-              />
-            </View>
-
+          {/* SECCIÓN 2: UNIDAD MÓVIL */}
+          <View style={styles.card}>
+            <SectionHeader title="UNIDAD MÓVIL" />
+            
             <View style={styles.row}>
-              <View style={[styles.col, styles.colLeft]}>
-                <View style={styles.field}>
-                  <FieldLabel text="Fecha" />
-                  <TextInput
-                    style={styles.input}
-                    value={form.fecha}
-                    onChangeText={(t) => handleChange("fecha", t)}
-                  />
+                <View style={{flex: 1, marginRight: 8}}>
+                    <Selector label="TIPO" value={form.unidad_tipo} onPress={() => abrirSelector("unidad_tipo", "TIPO UNIDAD", LISTAS.unidad_tipo)} />
                 </View>
-              </View>
-
-              <View style={[styles.col, styles.colRight]}>
-                <View style={styles.field}>
-                  <FieldLabel text="Hora inicio" />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="HH:MM"
-                    value={form.hora}
-                    onChangeText={(t) => handleChange("hora", t)}
-                  />
+                <View style={{flex: 1, marginLeft: 8}}>
+                    <FieldLabel text="PLACA / INTERNO" />
+                    <TextInput 
+                        style={styles.input} 
+                        value={form.placa}
+                        onChangeText={t => handleChange("placa", t)}
+                        placeholder="ABC-123"
+                    />
                 </View>
-              </View>
             </View>
-
-            <View style={styles.field}>
-              <FieldLabel text="Hora fin (opcional)" />
-              <TextInput
-                style={styles.input}
-                placeholder="HH:MM"
-                value={form.hora_fin}
-                onChangeText={(t) => handleChange("hora_fin", t)}
-              />
-            </View>
-
+            
             <View style={styles.row}>
-              <View style={[styles.col, styles.colLeft]}>
-                <Selector
-                  label="Sector"
-                  value={form.sector}
-                  onPress={() =>
-                    abrirSelector("sector", "Selecciona Sector", LISTAS.sector)
-                  }
-                  placeholder="1 al 13"
-                />
-              </View>
+                <View style={{flex: 1, marginRight: 8}}>
+                    <FieldLabel text="CONDUCTOR" />
+                    <TextInput 
+                        style={styles.input} 
+                        value={form.conductor}
+                        onChangeText={t => handleChange("conductor", t)}
+                        placeholder="Nombre conductor"
+                    />
+                </View>
+                <View style={{flex: 1, marginLeft: 8}}>
+                    <FieldLabel text="DNI CONDUCTOR" />
+                    <TextInput 
+                        style={styles.input} 
+                        value={form.dni_conductor}
+                        onChangeText={t => handleChange("dni_conductor", t)}
+                        placeholder="DNI"
+                        keyboardType="numeric"
+                    />
+                </View>
+            </View>
+          </View>
 
-              <View style={[styles.col, styles.colRight]}>
-                <Selector
-                  label="Zona"
-                  value={form.zona}
-                  onPress={() =>
-                    abrirSelector("zona", "Selecciona Zona", LISTAS.zona)
-                  }
-                  placeholder="Norte / Centro / Sur"
+          {/* SECCIÓN 3: DETALLE INCIDENCIA */}
+          <View style={styles.card}>
+            <SectionHeader title="DETALLE DE INCIDENCIA" />
+            
+            <Selector label="TIPO DE INCIDENCIA" value={form.sumilla} onPress={() => abrirSelector("sumilla", "INCIDENCIA", LISTAS.incidencia)} required />
+            <Selector label="ORIGEN (ASUNTO)" value={form.asunto} onPress={() => abrirSelector("asunto", "ORIGEN", LISTAS.asunto)} />
+            
+            <View style={styles.fieldContainer}>
+                <FieldLabel text="OCURRENCIA (RELATO)" />
+                <TextInput 
+                    style={[styles.input, styles.textArea]} 
+                    value={form.ocurrencia}
+                    onChangeText={t => handleChange("ocurrencia", t)}
+                    multiline
+                    numberOfLines={4}
+                    placeholder="Describa los hechos detalladamente..."
+                    textAlignVertical="top"
                 />
-              </View>
             </View>
 
-            <Selector
-              label="Turno"
-              value={form.turno}
-              onPress={() =>
-                abrirSelector("turno", "Selecciona Turno", LISTAS.turno)
-              }
+            <View style={styles.fieldContainer}>
+                <FieldLabel text="SUPERVISOR ZONAL" />
+                <TextInput 
+                    style={styles.input} 
+                    value={form.sup_zonal}
+                    onChangeText={t => handleChange("sup_zonal", t)}
+                    placeholder="Nombre del Sup. Zonal"
+                />
+            </View>
+
+            {/* ✅ SELECCIÓN DE MANDO */}
+            <Selector 
+                label="SELECCIONAR MANDO" 
+                value={tipoMandoSeleccionado} 
+                onPress={() => abrirSelector("tipo_mando", "SELECCIONAR CARGO", LISTAS.sup_general_opts)} 
+                placeholder="Seleccione cargo"
             />
 
-            <View style={styles.field}>
-              <FieldLabel text="Lugar" />
-              <TextInput
-                style={styles.input}
-                placeholder="Dirección / referencia del hecho"
-                value={form.lugar}
-                onChangeText={(t) => handleChange("lugar", t)}
-              />
-            </View>
-          </Section>
-
-          <Section
-            title="Unidad / Conductor"
-            subtitle="Información del vehículo y personal a cargo."
-          >
-            <View style={styles.row}>
-              <View style={[styles.col, styles.colLeft]}>
-                <Selector
-                  label="Tipo de unidad"
-                  value={form.unidad_tipo}
-                  onPress={() =>
-                    abrirSelector(
-                      "unidad_tipo",
-                      "Tipo de unidad",
-                      LISTAS.unidad_tipo
-                    )
-                  }
-                />
-              </View>
-
-              <View style={[styles.col, styles.colRight]}>
-                <View style={styles.field}>
-                  <FieldLabel text="N° unidad" />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Ej: 12"
-                    value={form.unidad_numero}
-                    onChangeText={(t) => handleChange("unidad_numero", t)}
-                  />
+            {/* ✅ CAMPO CONDICIONAL: Solo aparece si elegiste "SUPERVISOR GENERAL" */}
+            {tipoMandoSeleccionado === "SUPERVISOR GENERAL" && (
+                <View style={styles.fieldContainer}>
+                    <FieldLabel text="NOMBRE SUPERVISOR GENERAL" />
+                    <TextInput 
+                        style={styles.input} 
+                        value={form.sup_general}
+                        onChangeText={t => handleChange("sup_general", t)}
+                        placeholder="Escriba el nombre aquí..."
+                        autoFocus
+                    />
                 </View>
-              </View>
-            </View>
-
-            <View style={styles.row}>
-              <View style={[styles.col, styles.colLeft]}>
-                <View style={styles.field}>
-                  <FieldLabel text="Placa" />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="ABC-123"
-                    value={form.placa}
-                    onChangeText={(t) => handleChange("placa", t)}
-                  />
-                </View>
-              </View>
-
-              <View style={[styles.col, styles.colRight]}>
-                <View style={styles.field}>
-                  <FieldLabel text="Conductor" />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Nombre del conductor"
-                    value={form.conductor}
-                    onChangeText={(t) => handleChange("conductor", t)}
-                  />
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.field}>
-              <FieldLabel text="DNI Conductor" />
-              <TextInput
-                style={styles.input}
-                placeholder="DNI"
-                value={form.dni_conductor}
-                onChangeText={(t) => handleChange("dni_conductor", t)}
-                keyboardType="numeric"
-              />
-            </View>
-          </Section>
-
-          <Section
-            title="Incidencia / Informe"
-            subtitle="Tipo de incidencia y descripción detallada."
-          >
-            <Selector
-              label="Incidencia"
-              required
-              value={form.sumilla}
-              onPress={() =>
-                abrirSelector(
-                  "sumilla",
-                  "Selecciona Incidencia",
-                  LISTAS.incidencia
-                )
-              }
-            />
-
-            <Selector
-              label="Origen de atención"
-              value={form.asunto}
-              onPress={() =>
-                abrirSelector("asunto", "Origen de atención", LISTAS.asunto)
-              }
-            />
-
-            <View style={styles.field}>
-              <FieldLabel text="Detalle de ocurrencia" />
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Describa con claridad lo ocurrido (qué, quién, dónde, cuándo)."
-                value={form.ocurrencia}
-                onChangeText={(t) => handleChange("ocurrencia", t)}
-                multiline
-                textAlignVertical="top"
-                scrollEnabled={false}
-                blurOnSubmit={false}
-              />
-            </View>
-
-            <View style={styles.field}>
-              <FieldLabel text="Supervisor Zonal" />
-              <TextInput
-                style={styles.input}
-                placeholder="Supervisor Zonal"
-                value={form.sup_zonal}
-                onChangeText={(t) => handleChange("sup_zonal", t)}
-              />
-            </View>
-
-            <View style={styles.field}>
-              <FieldLabel text="Supervisor General" />
-              <TextInput
-                style={styles.input}
-                placeholder="Supervisor General"
-                value={form.sup_general}
-                onChangeText={(t) => handleChange("sup_general", t)}
-              />
-            </View>
-          </Section>
-
-          <Section
-            title="Participantes (opcional)"
-            subtitle="Agregar personas involucradas o intervenidas."
-          >
-            <TouchableOpacity
-              style={styles.softButton}
-              onPress={agregarParticipante}
-              activeOpacity={0.9}
-            >
-              <View style={styles.softButtonIcon}>
-                <IconSymbol name="paperplane.fill" size={18} color="#fff" />
-              </View>
-              <Text style={styles.softButtonText}>Agregar participante</Text>
-            </TouchableOpacity>
-
-            {participantes.map((p, index) => (
-              <View key={index} style={[styles.cardInner, styles.mt12]}>
-                <Text style={styles.miniTitle}>Participante #{index + 1}</Text>
-
-                <View style={styles.field}>
-                  <FieldLabel text="Nombres completos" />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Nombre y apellidos"
-                    value={p.nombre}
-                    onChangeText={(t) =>
-                      cambiarParticipante(index, "nombre", t)
-                    }
-                  />
-                </View>
-
-                <View style={styles.field}>
-                  <FieldLabel text="DNI" />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="DNI"
-                    keyboardType="numeric"
-                    value={p.dni}
-                    onChangeText={(t) => cambiarParticipante(index, "dni", t)}
-                  />
-                </View>
-              </View>
-            ))}
-          </Section>
-
-          <Section title="Ubicación (GPS)" subtitle="Adjunte la ubicación actual del incidente.">
-            <TouchableOpacity
-              style={[
-                styles.softButton,
-                ubicacion ? { backgroundColor: "#ecfccb", borderColor: "#84cc16" } : null
-              ]}
-              onPress={obtenerUbicacion}
-              disabled={loadingGPS}
-              activeOpacity={0.9}
-            >
-              <View style={[styles.softButtonIcon, ubicacion ? { backgroundColor: "#65a30d" } : null]}>
-                {loadingGPS ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <IconSymbol name={ubicacion ? "checkmark.circle.fill" : "location.fill"} size={18} color="#fff" />
-                )}
-              </View>
-              <View>
-                <Text style={styles.softButtonText}>
-                  {ubicacion ? "Ubicación Adjuntada" : "Obtener Ubicación GPS"}
-                </Text>
-                {ubicacion && (
-                  <Text style={{ fontSize: 10, color: "#4d7c0f", fontWeight: "700" }}>
-                    Lat: {ubicacion.lat.slice(0, 7)}... Lon: {ubicacion.lng.slice(0, 7)}...
-                  </Text>
-                )}
-              </View>
-            </TouchableOpacity>
-          </Section>
-
-          <Section title="Evidencias" subtitle="Adjunte fotos o videos relacionados al parte.">
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={handleFilePick}
-              activeOpacity={0.9}
-            >
-              <View style={styles.primaryIcon}>
-                <IconSymbol
-                  name="chevron.left.forwardslash.chevron.right"
-                  size={18}
-                  color="#fff"
-                />
-              </View>
-              <Text style={styles.primaryButtonText}>Agregar evidencia</Text>
-            </TouchableOpacity>
-
-            {archivos.length > 0 && (
-              <ScrollView
-                horizontal
-                style={styles.mt12}
-                showsHorizontalScrollIndicator={false}
-              >
-                {archivos.map((file, index) => (
-                  <View key={index} style={styles.previewItem}>
-                    <Image source={{ uri: file.uri }} style={styles.previewImage} />
-                    <Text style={styles.previewLabel}>
-                      {file.type === "video" ? "Video" : "Foto"} {index + 1}
-                    </Text>
-                  </View>
-                ))}
-              </ScrollView>
             )}
-          </Section>
 
-          <TouchableOpacity
-            style={[styles.saveButton, loading ? styles.saveButtonDisabled : null]}
+            {/* ✅ CAMPO INFORMATIVO (Solo lectura): Si es JEFE DE OPERACIONES */}
+            {tipoMandoSeleccionado === "JEFE DE OPERACIONES" && (
+                 <View style={styles.infoBox}>
+                    <Text style={styles.infoLabel}>MANDO A CARGO:</Text>
+                    <Text style={styles.infoValue}>{form.sup_general}</Text>
+                 </View>
+            )}
+
+          </View>
+
+          {/* SECCIÓN 4: PARTICIPANTES */}
+          <View style={styles.card}>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10}}>
+                <Text style={styles.sectionTitle}>PARTICIPANTES</Text>
+                <TouchableOpacity onPress={agregarParticipante} style={styles.addBtnSmall}>
+                    <Ionicons name="add" size={16} color="#FFF" />
+                    <Text style={styles.addBtnText}>AGREGAR</Text>
+                </TouchableOpacity>
+            </View>
+            
+            {participantes.map((p, i) => (
+                <View key={i} style={styles.participantCard}>
+                    <TouchableOpacity onPress={() => eliminarParticipante(i)} style={styles.deleteParticipant}>
+                        <Ionicons name="close" size={14} color="#EF4444" />
+                    </TouchableOpacity>
+
+                    <FieldLabel text={`PARTICIPANTE #${i+1}`} />
+                    
+                    <TextInput 
+                        style={[styles.input, {marginBottom: 8}]} 
+                        placeholder="Nombre completo" 
+                        value={p.nombre} 
+                        onChangeText={t => updateParticipante(i, "nombre", t)} 
+                    />
+                    
+                    <View style={styles.row}>
+                        <View style={{flex: 1, marginRight: 8}}>
+                            <TextInput 
+                                style={styles.input} 
+                                placeholder="DNI" 
+                                keyboardType="numeric"
+                                value={p.dni} 
+                                onChangeText={t => updateParticipante(i, "dni", t)} 
+                            />
+                        </View>
+                        <View style={{flex: 1, marginLeft: 8}}>
+                            <TouchableOpacity 
+                                style={styles.selector} 
+                                onPress={() => abrirSelector("cargo", "SELECCIONAR CARGO", LISTAS.cargos_participantes, i)}
+                            >
+                                <Text style={[styles.selectorText, !p.cargo && styles.placeholder]}>
+                                    {p.cargo || "Cargo"}
+                                </Text>
+                                <Ionicons name="chevron-down" size={16} color="#64748B" />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            ))}
+            
+            {participantes.length === 0 && (
+                <View style={styles.emptyBox}>
+                    <Ionicons name="people-outline" size={24} color="#CBD5E1" />
+                    <Text style={styles.emptyText}>No hay participantes registrados.</Text>
+                </View>
+            )}
+          </View>
+
+          {/* SECCIÓN 5: EVIDENCIAS Y GPS */}
+          <View style={styles.card}>
+            <SectionHeader title="EVIDENCIAS DIGITALES" />
+            
+            <View style={styles.row}>
+                <TouchableOpacity 
+                    style={[styles.actionButton, ubicacion ? styles.btnSuccess : styles.btnNeutral]} 
+                    onPress={obtenerUbicacion}
+                    disabled={loadingGPS}
+                >
+                    {loadingGPS ? <ActivityIndicator color="#0F172A"/> : <Ionicons name="location" size={20} color={ubicacion ? "#065F46" : "#0F172A"} />}
+                    <Text style={[styles.actionBtnText, ubicacion ? styles.textSuccess : null]}>
+                        {ubicacion ? "GPS OK" : "OBTENER GPS"}
+                    </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.actionButton, styles.btnNeutral]} onPress={handleFilePick}>
+                    <Ionicons name="camera" size={20} color="#0F172A" />
+                    <Text style={styles.actionBtnText}>FOTOS/VIDEO ({archivos.length})</Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* PREVISUALIZACIÓN */}
+            {archivos.length > 0 && (
+                <ScrollView horizontal style={{marginTop: 10}} showsHorizontalScrollIndicator={false}>
+                    {archivos.map((f, i) => (
+                        <Image key={i} source={{uri: f.uri}} style={styles.thumb} />
+                    ))}
+                </ScrollView>
+            )}
+          </View>
+
+          {/* BOTÓN GUARDAR */}
+          <TouchableOpacity 
+            style={[styles.submitButton, loading && styles.disabledBtn]} 
             onPress={enviarParte}
             disabled={loading}
-            activeOpacity={0.9}
           >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.saveButtonText}>Guardar Parte</Text>
-            )}
+            {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.submitText}>GUARDAR REPORTE OFICIAL</Text>}
           </TouchableOpacity>
 
-          <View style={styles.spacer} />
+          <View style={{height: 40}} />
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Modal
-        visible={selectorVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSelectorVisible(false)}
-      >
+      {/* MODAL SELECTOR */}
+      <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>{selectorTitulo}</Text>
-
-            <FlatList
-              data={selectorOpciones}
-              keyExtractor={(item) => item}
-              renderItem={renderOpcion}
-              initialNumToRender={12}
-              maxToRenderPerBatch={18}
-              windowSize={10}
-              removeClippedSubviews
-            />
-
-            <TouchableOpacity
-              style={styles.modalCloseBtn}
-              onPress={() => setSelectorVisible(false)}
-              activeOpacity={0.9}
-            >
-              <Text style={styles.modalCloseText}>Cerrar</Text>
-            </TouchableOpacity>
-          </View>
+            <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>{modalData.titulo}</Text>
+                    <TouchableOpacity onPress={() => setModalVisible(false)}>
+                        <Ionicons name="close-circle" size={24} color="#64748B" />
+                    </TouchableOpacity>
+                </View>
+                <FlatList 
+                    data={modalData.opciones}
+                    keyExtractor={i => i}
+                    renderItem={({item}) => (
+                        <TouchableOpacity style={styles.modalItem} onPress={() => seleccionarOpcion(item)}>
+                            <Text style={styles.modalItemText}>{item}</Text>
+                            <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+                        </TouchableOpacity>
+                    )}
+                />
+            </View>
         </View>
       </Modal>
 
-      {/* ✅ AQUÍ ESTÁ EL BOTÓN FLOTANTE AGREGADO */}
-      <TouchableOpacity 
-        style={styles.floatingHomeButton} 
-        onPress={() => router.push('/(tabs)')}
-        activeOpacity={0.9}
-      >
-        <IconSymbol name="house.fill" size={22} color="#fff" />
-        <Text style={styles.floatingHomeText}>Volver al Inicio</Text>
-      </TouchableOpacity>
-
-    </ThemedView>
+    </View>
   );
 }
 
-/** ✅ Tipado explícito */
-type Styles = {
-  container: ViewStyle;
-  scrollContent: ViewStyle;
-  header: ViewStyle;
-  title: TextStyle;
-  headerHint: TextStyle;
-  card: ViewStyle;
-  cardHeader: ViewStyle;
-  cardInner: ViewStyle;
-  cardTitle: TextStyle;
-  cardSubtitle: TextStyle;
-  row: ViewStyle;
-  col: ViewStyle;
-  colLeft: ViewStyle;
-  colRight: ViewStyle;
-  field: ViewStyle;
-  label: TextStyle;
-  req: TextStyle;
-  input: TextStyle;
-  textArea: TextStyle;
-  selector: ViewStyle;
-  selectorRow: ViewStyle;
-  selectorText: TextStyle;
-  placeholder: TextStyle;
-  selectorArrow: TextStyle;
-  miniTitle: TextStyle;
-  softButton: ViewStyle;
-  softButtonIcon: ViewStyle;
-  softButtonText: TextStyle;
-  primaryButton: ViewStyle;
-  primaryIcon: ViewStyle;
-  primaryButtonText: TextStyle;
-  mt12: ViewStyle;
-  previewItem: ViewStyle;
-  previewImage: ImageStyle;
-  previewLabel: TextStyle;
-  saveButton: ViewStyle;
-  saveButtonDisabled: ViewStyle;
-  saveButtonText: TextStyle;
-  modalOverlay: ViewStyle;
-  modalContainer: ViewStyle;
-  modalTitle: TextStyle;
-  modalItem: ViewStyle;
-  modalItemText: TextStyle;
-  modalChevron: TextStyle;
-  modalCloseBtn: ViewStyle;
-  modalCloseText: TextStyle;
-  spacer: ViewStyle;
-  // ✅ ESTILOS NUEVOS AGREGADOS
-  floatingHomeButton: ViewStyle;
-  floatingHomeText: TextStyle;
-};
+// --- ESTILOS EMPRESARIALES SISIFO ---
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F8FAFC" },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: Platform.OS === 'ios' ? 50 : 20, paddingBottom: 15, paddingHorizontal: 20,
+    backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0'
+  },
+  backBtn: { padding: 5 },
+  headerTitle: { fontSize: 14, fontWeight: '900', color: '#0F172A', letterSpacing: 1 },
+  
+  scrollContent: { padding: 16 },
 
-const styles = StyleSheet.create<Styles>({
-  container: { flex: 1, backgroundColor: "#F3F6FA" },
-  scrollContent: { padding: 14, paddingBottom: 30 },
-
-  header: { marginTop: 6, marginBottom: 12, alignItems: "center" },
-  title: { fontSize: 22, fontWeight: "900", textAlign: "center", color: "#0f172a" },
-  headerHint: { marginTop: 6, fontSize: 12, fontWeight: "800", color: "#64748b" },
-
+  // CARDS
   card: {
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 14,
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: "#E6EDF5",
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    backgroundColor: '#FFF', borderRadius: 8, padding: 16, marginBottom: 16,
+    borderWidth: 1, borderColor: '#E2E8F0',
+    shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 5, elevation: 2
   },
-  cardHeader: { marginBottom: 10 },
-  cardInner: {
-    backgroundColor: "#FBFDFF",
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#E6EDF5",
-  },
-  cardTitle: { fontSize: 14, fontWeight: "900", color: "#0f172a", letterSpacing: 0.4 },
-  cardSubtitle: { marginTop: 4, fontSize: 12, fontWeight: "700", color: "#64748b", lineHeight: 16 },
-
-  row: { flexDirection: "row", alignItems: "flex-start" },
-  col: { flex: 1 },
-  colLeft: { marginRight: 6 },
-  colRight: { marginLeft: 6 },
-
-  field: { marginBottom: 12 },
-
-  label: { fontSize: 12, fontWeight: "900", color: "#334155", marginBottom: 6 },
-  req: { color: "#dc2626", fontWeight: "900" },
-
+  sectionHeader: { marginBottom: 12 },
+  sectionTitle: { fontSize: 11, fontWeight: '800', color: '#64748B', letterSpacing: 1 },
+  sectionLine: { height: 1, backgroundColor: '#F1F5F9', marginTop: 4 },
+  
+  // FIELDS
+  fieldContainer: { marginBottom: 12 },
+  label: { fontSize: 10, fontWeight: '700', color: '#475569', marginBottom: 4, marginLeft: 2 },
+  req: { color: '#EF4444' },
   input: {
-    borderWidth: 1,
-    borderColor: "#DCE7F3",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: "#fff",
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#0f172a",
+    borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 6, paddingHorizontal: 10,
+    height: 42, fontSize: 14, color: '#0F172A', backgroundColor: '#F8FAFC'
   },
-  textArea: { minHeight: 110, textAlignVertical: "top", lineHeight: 20 },
-
+  textArea: { height: 80, paddingVertical: 10 },
+  
+  // INFO BOX (JEFE OP)
+  infoBox: {
+    backgroundColor: '#EFF6FF', padding: 10, borderRadius: 6, 
+    borderWidth: 1, borderColor: '#BFDBFE', marginTop: 8
+  },
+  infoLabel: { fontSize: 10, fontWeight: '800', color: '#1E40AF', marginBottom: 2 },
+  infoValue: { fontSize: 14, fontWeight: '900', color: '#1E3A8A' },
+  
+  // SELECTOR
   selector: {
-    borderWidth: 1,
-    borderColor: "#DCE7F3",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: "#fff",
-    marginBottom: 12,
+    borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 6, paddingHorizontal: 10,
+    height: 42, backgroundColor: '#F8FAFC', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'
   },
-  selectorRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  selectorText: { fontSize: 15, fontWeight: "800", color: "#0f172a" },
-  placeholder: { color: "#94a3b8", fontWeight: "800" },
-  selectorArrow: { fontSize: 18, fontWeight: "900", color: "#0a7ea4" },
+  selectorText: { fontSize: 13, color: '#0F172A', fontWeight: '600' },
+  placeholder: { color: '#94A3B8' },
 
-  miniTitle: { fontSize: 12, fontWeight: "900", color: "#0f172a", marginBottom: 10 },
+  row: { flexDirection: 'row', marginBottom: 12 },
 
-  softButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#DCE7F3",
-    backgroundColor: "#F8FBFF",
+  // PARTICIPANTES
+  participantCard: {
+    backgroundColor: '#F8FAFC', padding: 10, borderRadius: 6, marginBottom: 8,
+    borderWidth: 1, borderColor: '#E2E8F0', position: 'relative'
   },
-  softButtonIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    backgroundColor: "#0a7ea4",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
+  deleteParticipant: {
+    position: 'absolute', top: 5, right: 5, padding: 5, zIndex: 10
   },
-  softButtonText: { fontSize: 14, fontWeight: "900", color: "#0f172a" },
+  addBtnSmall: { backgroundColor: '#0F172A', flexDirection: 'row', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 4, alignItems: 'center' },
+  addBtnText: { color: '#FFF', fontSize: 10, fontWeight: '700', marginLeft: 4 },
+  
+  emptyBox: { alignItems: 'center', paddingVertical: 10 },
+  emptyText: { fontSize: 12, color: '#CBD5E1', fontStyle: 'italic', marginTop: 4 },
 
-  primaryButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#0a7ea4",
-    paddingVertical: 12,
-    borderRadius: 14,
+  // ACTIONS
+  actionButton: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 10, borderRadius: 6, marginHorizontal: 4, borderWidth: 1
   },
-  primaryIcon: { marginRight: 10 },
-  primaryButtonText: { color: "#fff", fontWeight: "900", fontSize: 14 },
+  btnNeutral: { backgroundColor: '#F1F5F9', borderColor: '#CBD5E1' },
+  btnSuccess: { backgroundColor: '#ECFDF5', borderColor: '#6EE7B7' },
+  actionBtnText: { fontSize: 11, fontWeight: '700', color: '#0F172A', marginLeft: 6 },
+  textSuccess: { color: '#065F46' },
+  
+  thumb: { width: 60, height: 60, borderRadius: 4, marginRight: 8, backgroundColor: '#E2E8F0' },
 
-  mt12: { marginTop: 12 },
+  // SUBMIT
+  submitButton: {
+    backgroundColor: '#059669', paddingVertical: 16, borderRadius: 8, 
+    alignItems: 'center', marginTop: 10, shadowColor: '#000', shadowOpacity: 0.2, shadowOffset: {width:0, height:4}
+  },
+  disabledBtn: { opacity: 0.7 },
+  submitText: { color: '#FFF', fontWeight: '900', fontSize: 14, letterSpacing: 1 },
 
-  previewItem: { marginRight: 10, alignItems: "center" },
-  previewImage: { width: 92, height: 92, borderRadius: 14, backgroundColor: "#e2e8f0" },
-  previewLabel: { marginTop: 6, fontSize: 12, fontWeight: "900", color: "#334155" },
-
-  saveButton: {
-    marginTop: 14,
-    backgroundColor: "#16a34a",
-    paddingVertical: 14,
-    borderRadius: 16,
-    alignItems: "center",
-  },
-  saveButtonDisabled: { opacity: 0.75 },
-  saveButtonText: { color: "#fff", fontWeight: "900", fontSize: 15 },
-
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(15,23,42,0.55)",
-    justifyContent: "flex-end",
-  },
-  modalContainer: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 14,
-    maxHeight: "78%",
-    borderWidth: 1,
-    borderColor: "#E6EDF5",
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#0f172a",
-    marginBottom: 10,
-    textAlign: "center",
-  },
-  modalItem: {
-    paddingVertical: 14,
-    paddingHorizontal: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#EEF2F7",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  modalItemText: { fontSize: 14, fontWeight: "900", color: "#0f172a" },
-  modalChevron: { fontSize: 20, fontWeight: "900", color: "#0a7ea4" },
-  modalCloseBtn: {
-    marginTop: 12,
-    paddingVertical: 12,
-    backgroundColor: "#0f172a",
-    borderRadius: 14,
-    alignItems: "center",
-  },
-  modalCloseText: { color: "#fff", fontWeight: "900", fontSize: 14 },
-
-  spacer: { height: 28 },
-
-  // ✅ ESTILOS NUEVOS AGREGADOS PARA EL BOTÓN FLOTANTE
-  floatingHomeButton: {
-    position: 'absolute',
-    bottom: 25,
-    alignSelf: 'center',
-    backgroundColor: '#0f172a',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 50,
-    elevation: 10,
-    zIndex: 9999,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
-  },
-  floatingHomeText: { color: '#fff', fontWeight: 'bold', marginLeft: 10, fontSize: 14 },
+  // MODAL
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '70%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderColor: '#F1F5F9' },
+  modalTitle: { fontSize: 14, fontWeight: '900', color: '#0F172A' },
+  modalItem: { padding: 16, borderBottomWidth: 1, borderColor: '#F8FAFC', flexDirection: 'row', justifyContent: 'space-between' },
+  modalItemText: { fontSize: 14, color: '#334155' }
 });
