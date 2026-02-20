@@ -1,566 +1,351 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { DownloadWordButton } from "./DownloadWordButton";
 import { DownloadExcelButton } from "./DownloadExcelButton";
 
 const API_URL = "http://localhost:4000";
 
-// --- UTILIDADES ---
+const SUMILLA_COLORS: any = {
+    "ROBO": "#ef4444", "HURTO": "#f97316", "APOYO": "#22c55e",
+    "ACCIDENTE": "#3b82f6", "INCENDIO": "#b91c1c", "SOSPECHOSO": "#eab308", "OTROS": "#64748b"
+};
+
+const getSumillaColor = (sumilla: string) => {
+    const s = (sumilla || "").toUpperCase();
+    return SUMILLA_COLORS[s] || SUMILLA_COLORS["OTROS"];
+};
+
 const getLocalToday = () => {
     const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    if (now.getHours() < 6) now.setDate(now.getDate() - 1);
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 };
 
 const cleanFileName = (rawPath: any) => {
-    if (!rawPath) return null;
+    if (!rawPath) return "";
     const pathString = typeof rawPath === 'string' ? rawPath : (rawPath.ruta || rawPath.path || "");
-    return pathString.split(/[\\/]/).pop() || null;
+    return pathString.split(/[\\/]/).pop() || "";
 };
-
-const normalizeDate = (dateStr: string) => {
-    if (!dateStr) return "";
-    return dateStr.split('T')[0];
-};
-
-const getMinutes = (horaStr: string) => {
-    if (!horaStr) return -1;
-    const [hh, mm] = horaStr.split(':').map(Number);
-    return hh * 60 + mm;
-};
-
-const isRangoDia = (mins: number) => mins >= 361 && mins <= 1080;
-const isRangoNoche = (mins: number) => (mins >= 1081) || (mins >= 0 && mins <= 360);
 
 const fetchOptions = () => ({
     method: 'GET',
     headers: { 'Content-Type': 'application/json' }
 });
 
-// ✅ 1. COMPONENTE: CALENDARIO FLOTANTE (ESTILO AZUL ORIGINAL)
-const FloatingCalendar = ({ fechaSeleccionada, onChange, fechasActivas, onClose }: { fechaSeleccionada: string, onChange: (f: string) => void, fechasActivas: string[], onClose: () => void }) => {
-    const [year, month] = fechaSeleccionada.split('-').map(Number);
-    const daysInMonth = new Date(year, month, 0).getDate();
-    const firstDayIndex = new Date(year, month - 1, 1).getDay(); 
-    const startOffset = firstDayIndex === 0 ? 6 : firstDayIndex - 1; 
+// --- COMPONENTE DETALLE DE PARTE (SÍSIFO FULL DATA) ---
+const ParteDetalleView = ({ parte, onClose, onOpenMedia }: any) => {
+    const [descargando, setDescargando] = useState(false);
 
-    const dias = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-    const vacios = Array.from({ length: startOffset }, (_, i) => i);
-
-    const esActivo = (d: number) => fechasActivas.includes(`${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
-    const esSeleccionado = (d: number) => `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}` === fechaSeleccionada;
-
-    const handleSelect = (newDate: string) => {
-        onChange(newDate);
-        onClose(); 
-    };
-
-    return (
-        <div style={{
-            position: 'absolute',
-            top: '45px', // Debajo del input falso
-            left: 0,
-            zIndex: 100, // Superpuesto
-            background: 'white', 
-            border: '1px solid #cbd5e1', 
-            borderRadius: '8px', 
-            padding: '15px', 
-            width: '260px', 
-            boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)'
-        }}>
-            {/* Header del Calendario */}
-            <div style={{textAlign: 'center', fontWeight: 'bold', marginBottom: '10px', color: '#1e3a8a', textTransform: 'capitalize', display: 'flex', justifyContent: 'space-between'}}>
-                <span>{new Date(year, month - 1, 1).toLocaleString('es-ES', { month: 'long', year: 'numeric' })}</span>
-                <button onClick={onClose} style={{border:'none', background:'none', cursor:'pointer', color:'#94a3b8'}}>✕</button>
-            </div>
-
-            {/* Días Semana */}
-            <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '5px'}}>
-                {['L','M','M','J','V','S','D'].map(d => <div key={d} style={{fontSize: '10px', fontWeight:'bold', color: '#64748b', textAlign: 'center'}}>{d}</div>)}
-            </div>
-
-            {/* Días Mes */}
-            <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px'}}>
-                {vacios.map(v => <div key={`v-${v}`} />)}
-                {dias.map(d => (
-                    <div key={d} onClick={() => handleSelect(`${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`)}
-                        style={{
-                            height: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: '6px',
-                            background: esSeleccionado(d) ? '#3b82f6' : (esActivo(d) ? '#eff6ff' : 'transparent'),
-                            color: esSeleccionado(d) ? 'white' : (esActivo(d) ? '#1e3a8a' : '#334155'),
-                            fontWeight: esSeleccionado(d) || esActivo(d) ? 'bold' : 'normal',
-                            position: 'relative', border: esActivo(d) && !esSeleccionado(d) ? '1px solid #bfdbfe' : 'none'
-                        }}
-                    >
-                        <span style={{fontSize: '12px'}}>{d}</span>
-                        {/* Punto Azul */}
-                        {esActivo(d) && !esSeleccionado(d) && <div style={{width: '4px', height: '4px', background: '#3b82f6', borderRadius: '50%', position: 'absolute', bottom: '2px'}}></div>}
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-};
-
-// ✅ COMPONENTE VISUAL DE DETALLE (SIN CAMBIOS)
-const ParteDetalleView = ({ parte, onClose, onOpenMedia }: { parte: any, onClose?: () => void, onOpenMedia: (m:any) => void }) => {
     const evidencias = useMemo(() => {
         if (!parte) return [];
         const lista: any[] = [];
-        if (Array.isArray(parte.fotos)) {
-            parte.fotos.forEach((ruta: string) => {
-                const url = ruta.startsWith('http') ? ruta : `${API_URL}/uploads/${ruta}`;
-                lista.push({ url, tipo: 'foto' });
-            });
-        }
-        if (Array.isArray(parte.videos)) {
-            parte.videos.forEach((ruta: string) => {
-                const url = ruta.startsWith('http') ? ruta : `${API_URL}/uploads/${ruta}`;
-                lista.push({ url, tipo: 'video' });
-            });
-        }
-        if (parte.todosArchivos && lista.length === 0) return parte.todosArchivos;
+        const format = (raw: string) => raw.startsWith('http') ? raw : `${API_URL}/uploads/${raw}`;
+        if (Array.isArray(parte.fotos)) parte.fotos.forEach((f: any) => lista.push({ url: format(f), tipo: 'foto' }));
+        if (Array.isArray(parte.videos)) parte.videos.forEach((v: any) => lista.push({ url: format(v), tipo: 'video' }));
         return lista;
     }, [parte]);
 
-    if (!parte) return null;
+    if (!parte) return (
+        <div style={{ padding: 60, textAlign: 'center', color: '#94a3b8' }}>
+            <div style={{ fontSize: 50, opacity: 0.3 }}>📂</div>
+            <p style={{ fontSize: 13, fontWeight: 500 }}>SISTEMA SISIFO: <br/> SELECCIONE UN REGISTRO</p>
+        </div>
+    );
 
-    const s = {
-        sectionTitle: { fontSize: '12px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginTop: '15px', marginBottom: '8px', borderBottom: '1px solid #f1f5f9', paddingBottom: '4px' },
-        row: { display: 'grid', gridTemplateColumns: '110px 1fr', gap: '8px', marginBottom: '4px', fontSize: '13px' },
-        label: { fontWeight: 700, color: '#64748b' },
-        value: { color: '#0f172a' },
-        gpsBtn: { display: 'inline-block', background: '#ecfdf5', color: '#059669', padding: '2px 6px', borderRadius: '4px', textDecoration: 'none', fontSize: '11px', fontWeight: 'bold', border: '1px solid #10b981' }
+    const openGoogleMaps = () => {
+        const lat = parte.latitud || parte.lat;
+        const lng = parte.longitud || parte.lng;
+        if (lat && lng) window.open(`https://www.google.com/maps?q=${lat},${lng}`, '_blank');
+        else alert("Sin coordenadas GPS.");
     };
 
-    const renderParticipantes = () => {
-        let parts = [];
+    const handleDescargarFolio = async () => {
         try {
-            if (Array.isArray(parte.participantes)) parts = parte.participantes;
-            else if (typeof parte.participantes === 'string') parts = JSON.parse(parte.participantes);
-        } catch { parts = []; }
-
-        if (!parts || parts.length === 0) return <span style={{color:'#cbd5e1', fontStyle:'italic', fontSize:'12px'}}>Sin participantes registrados</span>;
-
-        return (
-            <div style={{display:'flex', flexWrap:'wrap', gap:'5px'}}>
-                {parts.map((p: any, i: number) => (
-                    <span key={i} style={{background:'#f1f5f9', padding:'3px 8px', borderRadius:'12px', fontSize:'11px', color:'#475569', border:'1px solid #e2e8f0'}}>
-                        👤 {p.nombre} {p.dni ? `(DNI: ${p.dni})` : ''}
-                    </span>
-                ))}
-            </div>
-        );
+            setDescargando(true);
+            const rawToken = localStorage.getItem("token") || "";
+            const token = rawToken.startsWith('"') ? JSON.parse(rawToken) : rawToken;
+            const response = await fetch(`${API_URL}/api/partes/${parte.id}/descargar-folio`, { 
+                method: 'GET', headers: { 'Authorization': `Bearer ${token}` } 
+            });
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `EXP_SISIFO_P${parte.id}.zip`;
+            link.click();
+        } catch { alert("Error en servidor SISIFO"); } 
+        finally { setDescargando(false); }
     };
+
+    const SectionHeader = ({ title, icon }: any) => (
+        <div style={{ background: '#1e293b', color: '#f8fafc', padding: '6px 12px', fontSize: 11, fontWeight: 800, borderRadius: '4px 4px 0 0', display: 'flex', alignItems: 'center', gap: 8, marginTop: 15 }}>
+            <span>{icon}</span> {title.toUpperCase()}
+        </div>
+    );
+
+    const Row = ({ label, value, color, isBold = false }: any) => (
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 10px', borderBottom: '1px solid #e2e8f0', fontSize: 11.5, background: '#fff' }}>
+            <span style={{ color: '#64748b', fontWeight: 600 }}>{label}</span>
+            <span style={{ fontWeight: isBold ? 800 : 500, color: color || '#1e293b', textAlign: 'right', maxWidth: '65%', textTransform: 'uppercase' }}>{value || "---"}</span>
+        </div>
+    );
 
     return (
-        <div style={{background:'white', height:'100%', display:'flex', flexDirection:'column', overflow: 'hidden'}}>
-            {onClose && (
-                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10, paddingBottom:10, borderBottom:'2px solid #f1f5f9', flexShrink: 0}}>
-                    <div>
-                        <h2 style={{margin:0, color:'#1e293b', fontSize:'18px'}}>Parte #{parte.id}</h2>
-                        <span style={{fontSize:'11px', color:'#64748b'}}>REGISTRADO: {parte.fecha} | {parte.hora}</span>
-                    </div>
-                    <button onClick={onClose} style={{border:'none', background:'#f1f5f9', width:30, height:30, borderRadius:15, fontSize:16, cursor:'pointer', color:'#64748b', display:'flex', alignItems:'center', justifyContent:'center'}}>✕</button>
-                </div>
-            )}
-            <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
-                <div style={s.sectionTitle}>1. INFORMACIÓN GENERAL</div>
-                <div style={s.row}><span style={s.label}>N° Físico:</span><span style={s.value}>{parte.parte_fisico || '---'}</span></div>
-                <div style={s.row}><span style={s.label}>Turno:</span><span style={s.value}>{parte.turno}</span></div>
-                <div style={s.row}><span style={s.label}>Sector / Zona:</span><span style={s.value}>Sector {parte.sector} - {parte.zona}</span></div>
-                <div style={s.row}><span style={s.label}>Lugar:</span><span style={s.value}>{parte.lugar}</span></div>
-                {parte.latitud && parte.longitud && (
-                    <div style={s.row}>
-                        <span style={s.label}>Ubicación:</span>
-                        <span>
-                            <a href={`https://www.google.com/maps/search/?api=1&query=${parte.latitud},${parte.longitud}`} target="_blank" rel="noreferrer" style={s.gpsBtn}>
-                                📍 VER EN MAPA ({parte.latitud}, {parte.longitud})
-                            </a>
-                        </span>
-                    </div>
-                )}
-                <div style={s.sectionTitle}>2. UNIDAD Y PERSONAL</div>
-                <div style={s.row}><span style={s.label}>Unidad:</span><span style={s.value}>{parte.unidad_tipo} {parte.unidad_numero}</span></div>
-                <div style={s.row}><span style={s.label}>Placa:</span><span style={s.value}>{parte.placa || '---'}</span></div>
-                <div style={s.row}><span style={s.label}>Conductor:</span><span style={s.value}>{parte.conductor}</span></div>
-                <div style={s.row}><span style={s.label}>DNI Conductor:</span><span style={s.value}>{parte.dni_conductor || '---'}</span></div>
-                <div style={s.row}><span style={s.label}>Sup. Zonal:</span><span style={s.value}>{parte.supervisor_zonal || '---'}</span></div>
-                <div style={s.row}><span style={s.label}>Sup. General:</span><span style={s.value}>{parte.supervisor_general || '---'}</span></div>
-                <div style={s.sectionTitle}>3. DETALLE DEL HECHO</div>
-                <div style={s.row}><span style={s.label}>Tipo (Sumilla):</span><span style={{...s.value, fontWeight:'bold', color:'#2563eb'}}>{parte.sumilla}</span></div>
-                <div style={s.row}><span style={s.label}>Origen:</span><span style={s.value}>{parte.asunto || '---'}</span></div>
-                <div style={{marginTop:'8px', background:'#fffbeb', padding:'12px', borderRadius:'8px', borderLeft:'4px solid #f59e0b'}}>
-                    <div style={{fontSize:'10px', fontWeight:'900', color:'#b45309', marginBottom:'4px', letterSpacing:'1px'}}>OCURRENCIA:</div>
-                    <p style={{margin:0, fontSize:'13px', lineHeight:'1.5', color:'#451a03', whiteSpace:'pre-wrap', fontFamily:'monospace'}}>{parte.ocurrencia}</p>
-                </div>
-                <div style={s.sectionTitle}>4. INTERVENIDOS / PARTICIPANTES</div>
-                {renderParticipantes()}
-                <div style={s.sectionTitle}>5. EVIDENCIAS ({evidencias.length})</div>
-                <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'8px', marginTop:'10px'}}>
-                    {evidencias.length > 0 ? evidencias.map((m:any, i:number) => (
-                        <div key={i} onClick={() => onOpenMedia(m)} style={{aspectRatio:'1/1', background:'#000', borderRadius:'8px', overflow:'hidden', cursor:'pointer', position:'relative', border:'1px solid #e2e8f0', boxShadow:'0 2px 4px rgba(0,0,0,0.1)'}}>
-                            {m.tipo === 'video' ? 
-                                <video src={m.url} style={{width:'100%', height:'100%', objectFit:'cover', opacity:0.8}} /> :
-                                <img src={m.url} style={{width:'100%', height:'100%', objectFit:'cover'}} />
-                            }
-                            {m.tipo === 'video' && <div style={{position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', color:'white', background:'rgba(0,0,0,0.3)', fontSize:'24px'}}>▶</div>}
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f1f5f9' }}>
+            {/* CABECERA CON OPERADOR RESTAURADA */}
+            <div style={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e293b 100%)', color: 'white', padding: '15px 20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <img 
+                            src={parte.usuario_foto ? `${API_URL}/uploads/usuarios/${cleanFileName(parte.usuario_foto)}` : 'https://via.placeholder.com/40'} 
+                            style={{ width: 45, height: 45, borderRadius: '50%', border: '2px solid #3b82f6', objectFit: 'cover' }} 
+                            alt="op" 
+                        />
+                        <div>
+                            <div style={{ fontSize: 9, opacity: 0.8, fontWeight: 700 }}>OPERADOR REDACTOR</div>
+                            <div style={{ fontSize: 13, fontWeight: 800 }}>{parte.usuario_nombre || "SISTEMA"}</div>
                         </div>
-                    )) : <div style={{gridColumn:'1/-1', fontSize:'12px', color:'#94a3b8', textAlign:'center', padding:'15px', background:'#f8fafc', borderRadius:'6px'}}>📸 No hay evidencias adjuntas.</div>}
+                    </div>
+                    <button onClick={onClose} style={{ border: 'none', background: 'rgba(255,255,255,0.1)', color: 'white', borderRadius: '50%', width: 28, height: 28, cursor: 'pointer' }}>✕</button>
                 </div>
-                <div style={{height: 50}}></div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 15px 20px 15px' }}>
+                
+                {/* SUMILLA DESTACADA */}
+                <div style={{ marginTop: 15, background: 'white', padding: '12px', borderRadius: 8, borderLeft: `6px solid ${getSumillaColor(parte.sumilla)}`, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+                    <div style={{ fontSize: 10, color: '#64748b', fontWeight: 800 }}>SUMILLA / CATEGORÍA</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: getSumillaColor(parte.sumilla) }}>{parte.sumilla?.toUpperCase()}</div>
+                </div>
+
+                <SectionHeader title="Intervención" icon="📍" />
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '0 0 8px 8px', overflow: 'hidden' }}>
+                    <Row label="Parte Virtual" value={`#${parte.id}`} isBold color="#3b82f6" />
+                    <Row label="Correlativo Físico" value={parte.correlativo_fisico || parte.fisico} />
+                    <Row label="Fecha" value={parte.fecha} isBold />
+                    {/* HORAS INICIO / FIN RESTAURADAS */}
+                    <Row label="Hora Inicio" value={parte.hora_inicio || parte.hora} color="#059669" isBold />
+                    <Row label="Hora Término" value={parte.hora_fin || "---"} color="#dc2626" isBold />
+                    <Row label="Zona / Sector" value={`${parte.zona} / ${parte.sector || '---'}`} color="#1e3a8a" isBold />
+                    <Row label="Ubicación" value={parte.lugar || parte.lugar_exacto || parte.direccion} />
+                    <div style={{ padding: 10, background: 'white' }}>
+                        <button onClick={openGoogleMaps} style={{ width: '100%', padding: '10px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 800, fontSize: 11 }}>🌐 GEOPOSICIONAMIENTO GPS</button>
+                    </div>
+                </div>
+
+                <SectionHeader title="Recursos / Unidad" icon="🚔" />
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '0 0 8px 8px', overflow: 'hidden' }}>
+                    <Row label="Unidad" value={parte.unidad} />
+                    <Row label="Placa" value={parte.placa} isBold color="#b91c1c" />
+                    <Row label="Conductor" value={parte.conductor} />
+                    <Row label="DNI Conductor" value={parte.dni_conductor || parte.dni} />
+                </div>
+
+                <SectionHeader title="Ocurrencia" icon="📝" />
+                <div style={{ background: 'white', padding: 15, fontSize: 12, border: '1px solid #e2e8f0', borderRadius: '0 0 8px 8px', textAlign: 'justify', lineHeight: '1.5' }}>{parte.ocurrencia}</div>
+
+                <SectionHeader title="Mandos y Responsables" icon="👮" />
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '0 0 8px 8px', overflow: 'hidden' }}>
+                    <Row label="Intervinientes" value={parte.participantes} />
+                    <Row label="Cargos" value={parte.cargo_participantes} />
+                    <Row label="Sup. General" value={parte.supervisor_general} isBold />
+                    <Row label="Jefe Operaciones" value={parte.jefe_operaciones} />
+                    <Row label="Sup. Zonal / Turno" value={parte.supervisor_zonal || parte.supervisor_turno} />
+                </div>
+
+                <SectionHeader title="Evidencias" icon="📸" />
+                <div style={{ padding: 12, background: 'white', border: '1px solid #e2e8f0', borderRadius: '0 0 8px 8px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                        {evidencias.map((m: any, i: number) => (
+                            <div key={i} onClick={() => onOpenMedia(m)} style={{ aspectRatio: '1/1', background: '#0f172a', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: '2px solid #f1f5f9' }}>
+                                {m.tipo === 'video' ? <div style={{ color: '#3b82f6', fontSize: 10, textAlign: 'center', marginTop: '35%', fontWeight: 800 }}>▶ VIDEO</div> : <img src={m.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="e" />}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <button onClick={handleDescargarFolio} disabled={descargando} style={{ width: '100%', padding: 14, background: '#1e293b', color: '#10b981', border: '2px solid #10b981', borderRadius: 8, fontWeight: 900, cursor: 'pointer', marginTop: 20 }}>
+                    {descargando ? "PROCESANDO..." : "📥 DESCARGAR EXPEDIENTE SISIFO"}
+                </button>
             </div>
         </div>
     );
 };
 
-// Interface Dashboard
-interface CallCenterDashboardProps {
-    userName?: string;
-    onLogout?: () => void;
-    internoNombre?: string;
-    internoRoperoTurno?: string;
-    onOpenInternalLogin?: () => void;
-    onBack?: () => void;
-}
-
-const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({ 
-    userName, onLogout, internoNombre, internoRoperoTurno, onBack, onOpenInternalLogin 
-}) => {
-    const navigate = useNavigate();
-    const [fecha, setFecha] = useState<string>(getLocalToday());
-    const [turnoSel, setTurnoSel] = useState<string>("TURNO DIA");
-    const [dataZonal, setDataZonal] = useState<any>({ Norte: [], Centro: [], Sur: [], Total: 0 });
-    const [loading, setLoading] = useState(false);
-    
-    // ✅ ESTADO DEL CALENDARIO
-    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
-    const [fechasActivas, setFechasActivas] = useState<string[]>([]);
-
-    const [operadorInput, setOperadorInput] = useState(internoRoperoTurno || "");
-    const [callCenterInput, setCallCenterInput] = useState(internoNombre || "");
-
+// --- DASHBOARD PRINCIPAL ---
+const CallCenterDashboard: React.FC<any> = ({ userName, onLogout, internoNombre, internoRoperoTurno, onBack }) => {
+    const [fecha, setFecha] = useState(getLocalToday());
+    const [turnoSel, setTurnoSel] = useState("TURNO DIA");
+    const [rawPartes, setRawPartes] = useState<any[]>([]);
     const [showModal, setShowModal] = useState(false);
-    const [showMediaModal, setShowMediaModal] = useState(false);
     const [view, setView] = useState<'list' | 'detail'>('list');
     const [usuarios, setUsuarios] = useState<any[]>([]);
     const [userSel, setUserSel] = useState<any>(null);
     const [userPartes, setUserPartes] = useState<any[]>([]);
-    const [activeTab, setActiveTab] = useState<'cv' | 'partes'>('cv');
     const [parteSel, setParteSel] = useState<any>(null);
+    const [parteModalSel, setParteModalSel] = useState<any>(null);
+    const [showMediaModal, setShowMediaModal] = useState(false);
     const [mediaSeleccionado, setMediaSeleccionado] = useState<any>(null);
 
-    useEffect(() => {
-        if(internoRoperoTurno) setOperadorInput(internoRoperoTurno);
-        if(internoNombre) setCallCenterInput(internoNombre);
-    }, [internoRoperoTurno, internoNombre]);
-
-    // ✅ EFECTO: CARGAR PUNTOS AZULES (Fechas con datos)
-    useEffect(() => {
-        fetch(`${API_URL}/api/partes/fechas-activas`, fetchOptions())
-            .then(r => r.json()).then(d => { if(d.ok) setFechasActivas(d.fechas); })
-            .catch(e => console.error(e));
-    }, []);
-
-    // --- CARGA DE DATOS ---
-    useEffect(() => {
-        setParteSel(null);
-        let isMounted = true;
-        const load = async () => {
-            setLoading(true);
-            try {
-                const res = await fetch(`${API_URL}/api/partes?fecha=${fecha}`, fetchOptions());
-                const data = await res.json();
-                
-                if (isMounted && data.ok) {
-                    const lista = data.partes || [];
-                    const filtrados = lista.filter((p: any) => {
-                        if (normalizeDate(p.fecha) !== fecha) return false;
-                        if (!p.hora) return false; 
-                        const mins = getMinutes(p.hora);
-                        const textoTurno = (p.turno || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-
-                        if (turnoSel === "TURNO DIA") {
-                            const diceDia = textoTurno.includes("DIA") || textoTurno.includes("MANANA");
-                            const esHoraDia = isRangoDia(mins);
-                            return diceDia && esHoraDia;
-                        } else {
-                            const diceNoche = textoTurno.includes("NOCHE");
-                            const esHoraNoche = isRangoNoche(mins);
-                            return diceNoche && esHoraNoche;
-                        }
-                    });
-                    const getZ = (p: any) => (p.zona || "").toLowerCase().trim();
-                    setDataZonal({
-                        Norte: filtrados.filter((p: any) => getZ(p).includes("norte")),
-                        Centro: filtrados.filter((p: any) => getZ(p).includes("centro")),
-                        Sur: filtrados.filter((p: any) => getZ(p).includes("sur")),
-                        Total: filtrados.length
-                    });
-                }
-            } catch { /* Error silencioso */ } finally { if(isMounted) setLoading(false); }
-        };
-        load();
-        return () => { isMounted = false; };
-    }, [fecha, turnoSel]);
-
-    const renderMapeo = (lista: any[]) => {
-        if (lista.length === 0) return <div style={{textAlign:'center', color:'#94a3b8', marginTop:20, fontSize:12}}>∅ Sin registros</div>;
-        const conteo: Record<string, number> = {};
-        lista.forEach(p => {
-            const s = (p.sumilla || "SIN ESPECIFICAR").trim().toUpperCase();
-            conteo[s] = (conteo[s] || 0) + 1;
+    const partesFiltrados = useMemo(() => {
+        return rawPartes.filter(p => {
+            const [horaStr, minStr] = (p.hora || "00:00").split(':');
+            const h = parseInt(horaStr);
+            const tiempoEnMinutos = h * 60 + parseInt(minStr);
+            const limiteMañana = 6 * 60 + 1;
+            const limiteTarde = 18 * 60;
+            let fechaOperativa = p.fecha;
+            if (tiempoEnMinutos < limiteMañana) {
+                const d = new Date(p.fecha + "T12:00:00");
+                d.setDate(d.getDate() - 1);
+                fechaOperativa = d.toISOString().split('T')[0];
+            }
+            if (fechaOperativa !== fecha) return false;
+            return turnoSel === "TURNO DIA" ? (tiempoEnMinutos >= limiteMañana && tiempoEnMinutos <= limiteTarde) : (tiempoEnMinutos > limiteTarde || tiempoEnMinutos < limiteMañana);
         });
+    }, [rawPartes, turnoSel, fecha]);
+
+    const renderMapeo = (zonaItems: any[]) => {
+        const conteo = zonaItems.reduce((acc: any, p: any) => {
+            const s = (p.sumilla || "OTROS").toUpperCase();
+            acc[s] = (acc[s] || 0) + 1;
+            return acc;
+        }, {});
         return (
-            <div style={{marginTop:10}}>
-                {Object.entries(conteo).map(([n, c]) => (
-                    <div key={n} style={{display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px dashed #eee', fontSize:11}}>
-                        <span style={{fontWeight:600, color:'#334155'}}>{n}</span>
-                        <span style={{fontWeight:800, color:'#3b82f6'}}>{c}</span>
-                    </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+                {Object.entries(conteo).map(([k, v]: any) => (
+                    <span key={k} style={{ fontSize: 9, background: getSumillaColor(k), color: 'white', padding: '1px 6px', borderRadius: 4, fontWeight: 'bold' }}>{k}: {v}</span>
                 ))}
             </div>
         );
     };
 
-    const openUsers = async () => { setShowModal(true); setView('list'); const r = await fetch(`${API_URL}/api/usuarios`, fetchOptions()); if(r.ok) setUsuarios(await r.json()); };
-    const selectUser = async (u:any) => { setUserSel(u); setView('detail'); setActiveTab('cv'); setParteSel(null); const r = await fetch(`${API_URL}/api/usuarios/${u.id}/partes`, fetchOptions()); if(r.ok) { const d=await r.json(); setUserPartes(d.partes||[]); } };
-    
-    const handleSelectParte = async (id: number) => { 
-        try { 
-            if (parteSel && parteSel.id === id) { setParteSel(null); return; }
-            const r = await fetch(`${API_URL}/api/partes/${id}`, fetchOptions()); 
-            const d = await r.json(); 
-            if(d.ok) setParteSel(d.parte || d.data); 
-        } catch { /* Error */ } 
-    };
-
-    const navegarGaleria = (dir: 'prev'|'next') => { 
-        if(!parteSel?.todosArchivos?.length) return; 
-        const idx = parteSel.todosArchivos.findIndex((m:any) => m.url === mediaSeleccionado?.url); 
-        const nxt = dir==='next' ? (idx+1)%parteSel.todosArchivos.length : (idx-1+parteSel.todosArchivos.length)%parteSel.todosArchivos.length; 
-        setMediaSeleccionado(parteSel.todosArchivos[nxt]); 
-    };
-    const fotoPerfilUrl = useMemo(() => userSel?.foto_ruta ? `${API_URL}/uploads/usuarios/${cleanFileName(userSel.foto_ruta)}` : null, [userSel]);
-
-    const styles: Record<string, React.CSSProperties> = {
-        container: { padding: '30px', background: '#f4f6f8', minHeight: '100vh', display:'flex', gap:20, fontFamily:'sans-serif' },
-        card: { background: 'white', padding: '20px', borderRadius: '12px', marginBottom: '20px', display: 'flex', gap: 10, alignItems:'center', flexWrap: 'wrap' },
-        overlay: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9000 },
-        modal: { background: 'white', width: '90%', maxWidth: '1000px', height: '85vh', borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
-        btnNav: { padding: '8px 15px', borderRadius: 6, border: 'none', cursor: 'pointer', background: '#e2e8f0', fontWeight: 'bold', fontSize: 12 },
-        tabBtn: { padding: '8px 16px', marginRight: 10, border: '1px solid #d1d5db', cursor: 'pointer', borderRadius: 4, fontWeight: 'bold' }
-    };
+    useEffect(() => {
+        const load = async () => {
+            try {
+                const fSel = new Date(fecha + "T12:00:00");
+                const fSig = new Date(fSel); fSig.setDate(fSig.getDate() + 1);
+                const [resHoy, resMañana] = await Promise.all([
+                    fetch(`${API_URL}/api/partes?fecha=${fecha}`, fetchOptions()),
+                    fetch(`${API_URL}/api/partes?fecha=${fSig.toISOString().split('T')[0]}`, fetchOptions())
+                ]);
+                const dHoy = await resHoy.json();
+                const dMañana = await resMañana.json();
+                setRawPartes([...(dHoy.partes || []), ...(dMañana.partes || [])]);
+            } catch (e) { console.error(e); }
+        };
+        load();
+    }, [fecha]);
 
     return (
-        <div 
-            style={styles.container}
-            onMouseDown={(e) => {
-                // Cierra calendario y panel si se hace clic fuera
-                if (e.target === e.currentTarget) setParteSel(null);
-            }}
-        >
-            {/* OVERLAY INVISIBLE: Para cerrar el calendario si haces clic fuera */}
-            {isCalendarOpen && (
-                <div onClick={() => setIsCalendarOpen(false)} style={{position:'fixed', inset:0, zIndex:90}}></div>
-            )}
-
-            <div style={{flex:1}}>
-                <div style={{display:'flex', justifyContent:'space-between', marginBottom:20}}>
-                    <div style={{display:'flex', gap:10, alignItems:'center'}}>
-                        {onBack && (
-                            <button 
-                                onClick={onBack} 
-                                style={{background:'#64748b', color:'white', border:'none', borderRadius:'50%', width:32, height:32, cursor:'pointer', fontWeight:'bold', fontSize:16}}
-                                title="Volver al menú"
-                            >
-                                ←
-                            </button>
-                        )}
-                        <h1 style={{margin:0, fontSize:24}}>Panel Call Center – <span style={{color:'#3b82f6'}}>{userName}</span></h1>
-                    </div>
-                    <div style={{fontSize:12, textAlign:'right'}}>
-                        <div>Op: <b>{internoNombre}</b> | Turno: <b>{internoRoperoTurno}</b></div>
-                        {onOpenInternalLogin && <button onClick={onOpenInternalLogin} style={{background:'none', border:'none', color:'#3b82f6', textDecoration:'underline', cursor:'pointer', padding:0}}>Cambiar Credenciales</button>}
+        <div style={{ padding: 20, background: '#f1f5f9', minHeight: '100vh', display: 'flex', gap: 20, fontFamily: 'sans-serif' }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 15, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <button onClick={onBack} style={{ background: 'white', border: '1px solid #ddd', borderRadius: '50%', width: 40, height: 40, cursor: 'pointer' }}>←</button>
+                        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>SISIFO CALL CENTER – <span style={{ color: '#3b82f6' }}>{userName}</span></h1>
                     </div>
                 </div>
 
-                <div style={styles.card}>
-                    
-                    {/* ✅ 2. AQUÍ ESTÁ EL CAMBIO: CALENDARIO FLOTANTE */}
-                    <div style={{display:'flex', flexDirection:'column', position:'relative'}}>
-                        <label style={{fontSize:10, fontWeight:'bold', color:'#64748b'}}>FECHA</label>
-                        <button 
-                            onClick={() => setIsCalendarOpen(!isCalendarOpen)}
-                            style={{
-                                padding:'8px', borderRadius:'6px', border:'1px solid #ccc', 
-                                background:'white', cursor:'pointer', textAlign:'left', 
-                                minWidth: '130px', display:'flex', justifyContent:'space-between', alignItems:'center'
-                            }}
-                        >
-                            <span>{fecha}</span>
-                            <span style={{fontSize:10}}>▼</span>
-                        </button>
-
-                        {/* EL CALENDARIO APARECE AQUÍ FLOTANDO */}
-                        {isCalendarOpen && (
-                            <FloatingCalendar 
-                                fechaSeleccionada={fecha} 
-                                onChange={setFecha} 
-                                fechasActivas={fechasActivas} 
-                                onClose={() => setIsCalendarOpen(false)}
-                            />
-                        )}
-                    </div>
-
-                    <div style={{display:'flex', flexDirection:'column'}}>
-                        <label style={{fontSize:10, fontWeight:'bold', color:'#64748b'}}>TURNO</label>
-                        <select value={turnoSel} onChange={e=>setTurnoSel(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ccc'}}>
-                            <option value="TURNO DIA">TURNO DÍA (06:01 - 18:00)</option>
-                            <option value="TURNO NOCHE">TURNO NOCHE (18:01 - 06:00)</option>
-                        </select>
-                    </div>
-
-                    <div style={{display:'flex', flexDirection:'column'}}>
-                        <label style={{fontSize:10, fontWeight:'bold', color:'#64748b'}}>ROPER</label>
-                        <input type="text" value={operadorInput} onChange={e => setOperadorInput(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ccc', width:120}} placeholder="Nombre Roper" />
-                    </div>
-                    <div style={{display:'flex', flexDirection:'column'}}>
-                        <label style={{fontSize:10, fontWeight:'bold', color:'#64748b'}}>CALL CENTER</label>
-                        <input type="text" value={callCenterInput} onChange={e => setCallCenterInput(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ccc', width:120}} placeholder="Tu Nombre" />
-                    </div>
-
-                    <div style={{display:'flex', gap:10, marginLeft:'auto', alignItems:'center'}}>
-                        <button onClick={() => navigate('/estadistica')} style={styles.btnNav}>MÉTRICAS</button>
-                        <button onClick={openUsers} style={styles.btnNav}>USUARIOS</button>
-                        
-                        <DownloadWordButton fecha={fecha} turno={turnoSel} />
-                        
-                        <DownloadExcelButton 
-                            fecha={fecha} 
-                            turno={turnoSel} 
-                            operador={operadorInput} 
-                            callcenter={callCenterInput} 
-                        />
-
-                        <button onClick={onLogout} style={{...styles.btnNav, background:'#ef4444', color:'white'}}>SALIR</button>
-                    </div>
+                <div style={{ background: 'white', padding: '12px', borderRadius: 12, marginBottom: 15, display: 'flex', gap: 10, alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+                    <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} style={{ padding: '8px', borderRadius: 8, border: '1px solid #cbd5e1' }} />
+                    <select value={turnoSel} onChange={(e) => setTurnoSel(e.target.value)} style={{ padding: '8px', borderRadius: 8, border: '1px solid #cbd5e1', fontWeight: 'bold' }}>
+                        <option value="TURNO DIA">☀️ TURNO DÍA</option>
+                        <option value="TURNO NOCHE">🌙 TURNO NOCHE</option>
+                    </select>
+                    <div style={{ flex: 1 }} />
+                    <button onClick={async () => { setShowModal(true); setView('list'); const r = await fetch(`${API_URL}/api/usuarios`, fetchOptions()); if(r.ok) setUsuarios(await r.json()); }} style={{ padding: '10px 15px', background: '#1e293b', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold' }}>GESTOR PERSONAL</button>
+                    <DownloadWordButton fecha={fecha} turno={turnoSel} />
+                    <DownloadExcelButton fecha={fecha} turno={turnoSel} operador={internoRoperoTurno || ""} callcenter={internoNombre || ""} />
+                    <button onClick={onLogout} style={{ padding: '10px 15px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: 8, fontWeight: 'bold' }}>SALIR</button>
                 </div>
 
-                {loading ? <p>Cargando datos...</p> : (
-                    <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:20}}>
-                        {['Norte', 'Centro', 'Sur'].map(z => (
-                            <div key={z} style={{background:'white', padding:20, borderRadius:12, borderTop:'5px solid #3b82f6', minHeight:400, display:'flex', flexDirection:'column', boxShadow:'0 2px 5px rgba(0,0,0,0.05)'}}>
-                                <div style={{display:'flex', justifyContent:'space-between', fontWeight:'bold', borderBottom:'1px solid #eee', paddingBottom:10, marginBottom:10}}>
-                                    <span>ZONA {z.toUpperCase()}</span>
-                                    <span style={{color:'#3b82f6', fontSize:18}}>{dataZonal[z].length}</span>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 15 }}>
+                    {['Norte', 'Centro', 'Sur'].map(z => {
+                        const items = partesFiltrados.filter(p => (p.zona || "").toLowerCase().includes(z.toLowerCase()));
+                        return (
+                            <div key={z} style={{ background: 'white', borderRadius: 15, height: '62vh', display: 'flex', flexDirection: 'column', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                                <div style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
+                                    <div style={{ fontWeight: 800, fontSize: 14 }}>ZONA {z.toUpperCase()} ({items.length})</div>
+                                    {renderMapeo(items)}
                                 </div>
-                                {renderMapeo(dataZonal[z])}
+                                <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
+                                    {items.map((p: any) => (
+                                        <div key={p.id} onClick={() => setParteSel(p)} style={{ padding: '10px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}><b>#{p.id}</b> <span style={{ color: '#94a3b8' }}>{p.hora}</span></div>
+                                            <div style={{ color: getSumillaColor(p.sumilla), fontWeight: 800, fontSize: 13, margin: '2px 0' }}>{p.sumilla}</div>
+                                            <div style={{ color: '#64748b', fontSize: 10 }}>{p.lugar || p.lugar_exacto}</div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                        ))}
+                        );
+                    })}
+                </div>
+
+                {/* CONSOLIDADO INFERIOR CON TEXTO AZUL RESTAURADO */}
+                <div style={{ marginTop: 15, background: '#1e293b', color: 'white', padding: '15px 25px', borderRadius: 15, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                        <div style={{ fontSize: 14, fontWeight: 800 }}>CONSOLIDADO DE OPERACIONES SISIFO</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>Operativo: <b>{fecha}</b> | Turno: <b>{turnoSel}</b></div>
                     </div>
-                )}
-                
-                <div style={{background:'#0f172a', color:'white', padding:20, borderRadius:12, marginTop:20, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                    <span style={{fontWeight:'bold', fontSize:18}}>TOTAL PARTES VIRTUALES DEL TURNO</span>
-                    <span style={{fontSize:36, fontWeight:900}}>{dataZonal.Total}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 15 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#3b82f6', letterSpacing: 1 }}>TOTAL PARTES</div>
+                        <div style={{ fontSize: 34, fontWeight: 900 }}>{partesFiltrados.length}</div>
+                    </div>
                 </div>
             </div>
 
-            {/* PANEL DETALLE LATERAL */}
-            {parteSel && !showModal && (
-                <div style={{
-                    width: 450, 
-                    background: 'white', 
-                    padding: 25, 
-                    borderRadius: 12, 
-                    boxShadow: '-5px 0 20px rgba(0,0,0,0.05)', 
-                    borderLeft: '1px solid #eee', 
-                    display: 'flex', 
-                    flexDirection: 'column', 
-                    position: 'sticky', 
-                    top: 20, 
-                    height: 'calc(100vh - 40px)', 
-                    overflow: 'hidden' 
-                }}>
-                    <ParteDetalleView 
-                        parte={parteSel} 
-                        onClose={() => setParteSel(null)}
-                        onOpenMedia={(m) => { 
-                            setMediaSeleccionado(m); 
-                            setShowMediaModal(true); 
-                        }} 
-                    />
+            {/* DETALLE LATERAL */}
+            {parteSel && (
+                <div style={{ width: 420, background: 'white', padding: 0, borderRadius: 20, height: '90vh', position: 'sticky', top: 20, boxShadow: '-10px 0 30px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                    <ParteDetalleView parte={parteSel} onClose={() => setParteSel(null)} onOpenMedia={(m: any) => { setMediaSeleccionado(m); setShowMediaModal(true); }} />
                 </div>
             )}
 
-            {/* MODAL USUARIOS */}
+            {/* MODAL GESTOR PERSONAL */}
             {showModal && (
-                <div style={styles.overlay}>
-                    <div style={styles.modal}>
-                        <div style={{ padding: 20, borderBottom: '1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                            <h2 style={{margin:0}}>{userSel ? userSel.usuario : "GESTIÓN DE USUARIOS"}</h2>
-                            <button onClick={()=>setShowModal(false)} style={{background:'none', border:'none', fontSize:28, cursor:'pointer'}}>×</button>
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
+                    <div style={{ background: 'white', width: '950px', height: '85vh', borderRadius: 20, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                        <div style={{ padding: '20px 30px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+                            <h3 style={{ margin: 0 }}>Gestión de Personal</h3>
+                            <button onClick={() => { setShowModal(false); setView('list'); }} style={{ border: 'none', background: '#fee2e2', color: '#ef4444', width: 30, height: 30, borderRadius: '50%', cursor: 'pointer' }}>✕</button>
                         </div>
                         {view === 'list' ? (
-                            <div style={{ padding: 20, overflowY: 'auto' }}>
+                            <div style={{ padding: 30, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 20 }}>
                                 {usuarios.map(u => (
-                                    <div key={u.id} onClick={()=>selectUser(u)} style={{padding:15, borderBottom:'1px solid #eee', cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                                        <span style={{fontWeight:'bold'}}>{u.usuario}</span>
-                                        <span style={{color:'#3b82f6', fontSize:12, background:'#eff6ff', padding:'4px 8px', borderRadius:4}}>Ver Perfil →</span>
+                                    <div key={u.id} onClick={async () => { 
+                                        setUserSel(u); setView('detail'); 
+                                        const r = await fetch(`${API_URL}/api/usuarios/${u.id}/partes`, fetchOptions()); 
+                                        if (r.ok) { const d = await r.json(); setUserPartes(d.partes || []); }
+                                    }} style={{ padding: 20, background: '#f8fafc', borderRadius: 15, textAlign: 'center', cursor: 'pointer', border: '1px solid #e2e8f0' }}>
+                                        <img src={`${API_URL}/uploads/usuarios/${cleanFileName(u.foto_ruta)}`} style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', marginBottom: 12, border: '3px solid white' }} onError={(e: any) => e.target.src = 'https://via.placeholder.com/80'} alt="u" />
+                                        <div style={{ fontWeight: 800, fontSize: 13 }}>{u.usuario}</div>
+                                        <div style={{ fontSize: 10, color: '#3b82f6', fontWeight: 700, marginTop: 4 }}>{u.rol || 'OPERADOR'}</div>
                                     </div>
                                 ))}
                             </div>
                         ) : (
-                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                                <div style={{ padding: '10px 20px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                    <button onClick={()=>setActiveTab('cv')} style={{...styles.tabBtn, background: activeTab==='cv'?'white':'transparent'}}>Información</button>
-                                    <button onClick={()=>setActiveTab('partes')} style={{...styles.tabBtn, background: activeTab==='partes'?'white':'transparent'}}>Partes ({userPartes.length})</button>
-                                    <button onClick={()=>setView('list')} style={{float:'right', border:'none', background:'none', cursor:'pointer', color:'#64748b'}}>← Volver a lista</button>
+                            <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+                                <div style={{ width: 320, borderRight: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
+                                    <div style={{ padding: 20, borderBottom: '1px solid #eee' }}>
+                                        <button onClick={() => setView('list')} style={{ background: '#1e293b', color: 'white', border: 'none', padding: '6px 12px', borderRadius: 6, fontSize: 11, cursor: 'pointer', marginBottom: 15 }}>← VOLVER</button>
+                                        <div style={{ display: 'flex', gap: 15, alignItems: 'center' }}>
+                                            <img src={`${API_URL}/uploads/usuarios/${cleanFileName(userSel?.foto_ruta)}`} style={{ width: 50, height: 50, borderRadius: '50%', objectFit: 'cover' }} alt="s" />
+                                            <div><div style={{ fontWeight: 800, fontSize: 14 }}>{userSel?.usuario}</div><div style={{ fontSize: 10 }}>{userPartes.length} Partes</div></div>
+                                        </div>
+                                    </div>
+                                    <div style={{ flex: 1, overflowY: 'auto', padding: 15 }}>
+                                        {userPartes.map(p => (
+                                            <div key={p.id} onClick={async () => { const r = await fetch(`${API_URL}/api/partes/${p.id}`, fetchOptions()); const d = await r.json(); setParteModalSel(d.parte || d.data); }} style={{ padding: 10, background: 'white', borderRadius: 8, marginBottom: 8, cursor: 'pointer', border: '1px solid #eee', fontSize: 11 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}><b>#{p.id}</b> <span>{p.hora}</span></div>
+                                                <div style={{ fontWeight: 700, color: getSumillaColor(p.sumilla) }}>{p.sumilla}</div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
-                                <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                                    {activeTab === 'cv' ? (
-                                        <div style={{ padding: 40, display: 'flex', gap: 40, alignItems:'flex-start' }}>
-                                            <div style={{ width: 150, height: 150, borderRadius: 75, background: '#e2e8f0', overflow:'hidden', border:'4px solid white', boxShadow:'0 4px 6px rgba(0,0,0,0.1)' }}>
-                                                {fotoPerfilUrl ? <img src={fotoPerfilUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} /> : <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:50}}>👤</div>}
-                                            </div>
-                                            <div>
-                                                <h2 style={{marginTop:0}}>{userSel.usuario}</h2>
-                                                <p><b>DNI:</b> {userSel.dni}</p>
-                                                <p><b>Cargo:</b> {userSel.cargo}</p>
-                                                <p><b>Celular:</b> {userSel.celular || "No registrado"}</p>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div style={{flex:1, display:'flex'}}>
-                                            <div style={{width:300, borderRight:'1px solid #eee', overflowY:'auto', background:'#f8fafc'}}>
-                                                {userPartes.map(p=>(
-                                                    <div key={p.id} onClick={()=>handleSelectParte(p.id)} style={{padding:15, borderBottom:'1px solid #eee', cursor:'pointer', background: parteSel?.id===p.id?'#e0f2fe':'transparent'}}>
-                                                        <b>Parte #{p.id}</b><br/><span style={{fontSize:11, color:'#64748b'}}>{p.fecha}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            <div style={{
-                                                flex: 1, 
-                                                padding: 30, 
-                                                overflow: 'hidden', 
-                                                display: 'flex', 
-                                                flexDirection: 'column', 
-                                                height: '65vh'
-                                            }}>
-                                                {parteSel ? (
-                                                    <ParteDetalleView 
-                                                        parte={parteSel} 
-                                                        onClose={undefined} 
-                                                        onOpenMedia={(m) => { setMediaSeleccionado(m); setShowMediaModal(true); }} 
-                                                    />
-                                                ) : <p style={{color:'#94a3b8', textAlign:'center', marginTop:50}}>Seleccione un parte de la lista izquierda</p>}
-                                            </div>
-                                        </div>
-                                    )}
+                                <div style={{ flex: 1, padding: 0, overflowY: 'auto', background: 'white' }}>
+                                    {parteModalSel ? <ParteDetalleView parte={parteModalSel} onClose={() => setParteModalSel(null)} onOpenMedia={(m: any) => { setMediaSeleccionado(m); setShowMediaModal(true); }} /> : <div style={{ textAlign: 'center', marginTop: 100, color: '#94a3b8' }}>Seleccione un registro a la izquierda</div>}
                                 </div>
                             </div>
                         )}
@@ -568,17 +353,10 @@ const CallCenterDashboard: React.FC<CallCenterDashboardProps> = ({
                 </div>
             )}
 
+            {/* VISOR MULTIMEDIA */}
             {showMediaModal && mediaSeleccionado && (
-                <div style={{...styles.overlay, zIndex:10000, background:'rgba(0,0,0,0.95)'}}>
-                    <button onClick={()=>setShowMediaModal(false)} style={{position:'absolute', top:20, right:20, fontSize:40, color:'white', background:'none', border:'none', cursor:'pointer'}}>✕</button>
-                    <button onClick={()=>navegarGaleria('prev')} style={{position:'absolute', left:20, color:'white', fontSize:60, background:'none', border:'none', cursor:'pointer'}}>❮</button>
-                    <div style={{textAlign:'center', maxWidth:'90vw', maxHeight:'90vh'}}>
-                        {mediaSeleccionado.tipo === 'video' ? 
-                            <video src={mediaSeleccionado.url} controls autoPlay style={{maxWidth:'100%', maxHeight:'80vh', boxShadow:'0 0 50px rgba(0,0,0,0.5)'}} /> : 
-                            <img src={mediaSeleccionado.url} style={{maxWidth:'100%', maxHeight:'80vh', boxShadow:'0 0 50px rgba(0,0,0,0.5)'}} />
-                        }
-                    </div>
-                    <button onClick={()=>navegarGaleria('next')} style={{position:'absolute', right:20, color:'white', fontSize:60, background:'none', border:'none', cursor:'pointer'}}>❯</button>
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowMediaModal(false)}>
+                    {mediaSeleccionado.tipo === 'video' ? <video src={mediaSeleccionado.url} controls autoPlay style={{ maxWidth: '90%', maxHeight: '90%' }} onClick={(e) => e.stopPropagation()} /> : <img src={mediaSeleccionado.url} style={{ maxWidth: '90%', maxHeight: '90%', objectFit: 'contain' }} alt="m" onClick={(e) => e.stopPropagation()} />}
                 </div>
             )}
         </div>

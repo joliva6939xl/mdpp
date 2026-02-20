@@ -6,6 +6,9 @@ const { verificarToken } = require("../middlewares/auth.middleware");
 // Importamos el Middleware Híbrido (Para fotos y videos)
 const { uploadPartes } = require("../middlewares/upload.middleware");
 
+// Importamos el controlador para descargar el ZIP (Folio)
+const { descargarFolioParte } = require("../controllers/descargas.controller");
+
 // ==========================================
 // 1. RUTAS PRINCIPALES (CRUD)
 // ==========================================
@@ -56,6 +59,9 @@ router.get("/fechas-activas", verificarToken, partesController.obtenerFechasActi
 // ==========================================
 // 3. RUTAS DE REPORTES (DESCARGAS)
 // ==========================================
+
+// NUEVA RUTA: Descargar el Expediente ZIP (PDF + Fotos + Mapa)
+router.get("/:id/descargar-folio", verificarToken, descargarFolioParte);
 
 // Descarga en WORD
 // Antes: descargarReporteWord -> Ahora: descargarReporteConteo (Según tu código)

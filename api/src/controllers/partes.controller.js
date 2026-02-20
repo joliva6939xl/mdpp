@@ -4,6 +4,8 @@ const db = require("../config/db");
 // Importamos librerías para reportes
 const { Document, Packer, Paragraph, TextRun, AlignmentType, TabStopType, PageBreak } = require("docx");
 const ExcelJS = require('exceljs');
+const PDFDocument = require("pdfkit"); // RESTAURADO ✅
+const archiver = require("archiver");   // RESTAURADO ✅
 
 const pool = db.pool || db;
 
@@ -61,11 +63,19 @@ const crearParte = async (req, res) => {
         await client.query(`INSERT INTO parte_archivos (parte_id, tipo, ruta, nombre_original) VALUES ($1, $2, $3, $4)`, [parteId, tipo, rutaRelativa, file.originalname || file.filename]);
       }
     }
+    
     await client.query("COMMIT");
+
+    // 🔥 SOCKET.IO: Notificar al dashboard
+    const io = req.app.get("socketio");
+    if (io) {
+        const nuevoParteFull = await pool.query("SELECT * FROM partes_virtuales WHERE id = $1", [parteId]);
+        io.emit("nuevo-parte", nuevoParteFull.rows[0]);
+    }
+
     res.json({ ok: true, message: "Parte creado con ubicación", id: parteId });
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("❌ Error crearParte:", error);
     res.status(500).json({ ok: false, message: "Error interno", error: error.message });
   } finally { client.release(); }
 };
@@ -77,50 +87,26 @@ const obtenerParte = async (req, res) => { const { id } = req.params; try { cons
 const actualizarParte = async (req, res) => { const { id } = req.params; const { parte_fisico, fecha, hora, hora_fin, sector, zona, turno, lugar, unidad_tipo, unidad_numero, placa, conductor, dni_conductor, sumilla, asunto, ocurrencia, sup_zonal, sup_general, } = req.body; try { const result = await pool.query(`UPDATE partes_virtuales SET parte_fisico = $1, fecha = $2, hora = $3, hora_fin = $4, sector = $5, zona = $6, turno = $7, lugar = $8, unidad_tipo = $9, unidad_numero = $10, placa = $11, conductor = $12, dni_conductor = $13, sumilla = $14, asunto = $15, ocurrencia = $16, sup_zonal = $17, sup_general = $18 WHERE parte_fisico = $19 OR id::text = $19 RETURNING *;`, [parte_fisico, fecha, hora, hora_fin || null, sector, zona, turno, lugar, unidad_tipo, unidad_numero, placa, conductor, dni_conductor, sumilla, asunto, ocurrencia, sup_zonal, sup_general, id]); if (result.rowCount === 0) return res.status(404).json({ ok: false, message: "Parte no encontrado" }); return res.json({ ok: true, message: "Parte actualizado", parte: result.rows[0] }); } catch (error) { return res.status(500).json({ ok: false, message: "Error interno", error: error.message }); } };
 
 // ==========================================
-// 🔥 CERRAR PARTE (CON LOGS Y CÁLCULO) 🔥
+// 🔥 CERRAR PARTE (CON DÍAS Y RESPUESTA JSON COMPLETA) ✅
 // ==========================================
 const cerrarParte = async (req, res) => {
   const { id } = req.params;
-  
-  // LOG DE DIAGNÓSTICO SOLICITADO
-  console.log(`🏁 [2] CONTROLADOR ALCANZADO: Cerrando Parte ID ${id}`);
-
   try {
     const client = await pool.connect();
-    
-    // 1. OBTENER FECHA Y HORA DE CREACIÓN
     const checkQuery = `SELECT fecha, hora FROM partes_virtuales WHERE parte_fisico = $1 OR id::text = $1`;
     const checkRes = await client.query(checkQuery, [id]);
 
-    if (checkRes.rowCount === 0) {
-        client.release();
-        return res.status(404).json({ ok: false, message: "Parte no encontrado" });
-    }
+    if (checkRes.rowCount === 0) { client.release(); return res.status(404).json({ ok: false, message: "Parte no encontrado" }); }
 
     const fila = checkRes.rows[0];
-    
-    // 2. CONSTRUIR FECHAS (INICIO vs FIN)
-    // Fecha Inicio
-    let fechaInicioStr = fila.fecha; 
-    if (fila.fecha instanceof Date) {
-        fechaInicioStr = fila.fecha.toISOString().split('T')[0];
-    }
-    // Asumimos formato HH:mm en BD. Añadimos segundos 00.
+    let fechaInicioStr = fila.fecha instanceof Date ? fila.fecha.toISOString().split('T')[0] : fila.fecha;
     const fechaInicio = new Date(`${fechaInicioStr}T${fila.hora}:00`);
-
-    // Fecha Fin (AHORA MISMO en Perú 🇵🇪)
-    const ahoraPeru = new Date().toLocaleString("en-US", { timeZone: "America/Lima" });
-    const fechaFin = new Date(ahoraPeru);
+    const ahoraPeru = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Lima" }));
     
-    // Formatear hora de cierre (HH:MM) para guardar
-    const horaCierreGuardar = fechaFin.getHours().toString().padStart(2, '0') + ':' + fechaFin.getMinutes().toString().padStart(2, '0');
-    // Formatear fecha para mostrar
-    const fechaCierreMostrar = fechaFin.toLocaleDateString('es-PE');
+    const horaCierreGuardar = ahoraPeru.getHours().toString().padStart(2, '0') + ':' + ahoraPeru.getMinutes().toString().padStart(2, '0');
+    const fechaCierreMostrar = ahoraPeru.toLocaleDateString('es-PE');
 
-    // 3. CALCULAR DIFERENCIA (DURACIÓN)
-    // Evitamos números negativos si la hora del servidor está desajustada
-    const diferenciaMs = Math.max(0, fechaFin - fechaInicio); 
-    
+    const diferenciaMs = Math.max(0, ahoraPeru - fechaInicio); 
     const diffMins = Math.floor(diferenciaMs / 60000);
     const dias = Math.floor(diffMins / 1440);
     const horas = Math.floor((diffMins % 1440) / 60);
@@ -128,50 +114,153 @@ const cerrarParte = async (req, res) => {
 
     let textoDuracion = "";
     if (dias > 0) textoDuracion += `${dias} días, `;
-    if (horas > 0) textoDuracion += `${horas} horas y `;
+    if (horas > 0 || dias > 0) textoDuracion += `${horas} horas y `;
     textoDuracion += `${minutos} minutos.`;
 
-    // 4. ACTUALIZAR BASE DE DATOS
-    const updateQuery = `UPDATE partes_virtuales SET hora_fin = $2 WHERE parte_fisico = $1 OR id::text = $1 RETURNING *;`;
-    const result = await client.query(updateQuery, [id, horaCierreGuardar]);
+    const result = await client.query(`UPDATE partes_virtuales SET hora_fin = $2 WHERE parte_fisico = $1 OR id::text = $1 RETURNING *;`, [id, horaCierreGuardar]);
     client.release();
-
-    const parteCerrado = result.rows[0];
-    const mensajeFinal = `Parte cerrado el ${fechaCierreMostrar} a las ${horaCierreGuardar}.\nDuración: ${textoDuracion}`;
-
-    console.log(`✅ ${mensajeFinal}`);
 
     return res.json({ 
         ok: true, 
-        message: mensajeFinal, 
-        parte: parteCerrado,
+        message: `Parte cerrado.\nDuración: ${textoDuracion}`, 
+        parte: result.rows[0],
         duracion: textoDuracion,
         fecha_cierre: fechaCierreMostrar,
         hora_cierre: horaCierreGuardar
     });
-
-  } catch (error) {
-    console.error("🔥 Error cálculo fecha:", error);
-    return res.status(500).json({ ok: false, message: "Error interno", error: error.message });
-  }
+  } catch (error) { return res.status(500).json({ ok: false, error: error.message }); }
 };
 
-const obtenerEstadisticasCallCenter = async (req, res) => { const { fecha, turno } = req.query; try { const text = `SELECT id, zona, turno FROM partes_virtuales WHERE fecha::text LIKE $1 || '%'`; const result = await pool.query(text, [fecha]); const stats = { Norte: 0, Centro: 0, Sur: 0, Total: 0 }; result.rows.forEach(row => { const dbZona = (row.zona || "").toUpperCase().trim(); if (dbZona === 'NORTE') stats.Norte++; else if (dbZona === 'CENTRO') stats.Centro++; else if (dbZona === 'SUR') stats.Sur++; }); stats.Total = stats.Norte + stats.Centro + stats.Sur; res.json(stats); } catch (error) { res.status(500).json({ ok: false, error: error.message }); } };
-
-const obtenerMetricasZonales = async (req, res) => { try { const client = await pool.connect(); const result = await client.query("SELECT zona FROM partes_virtuales"); client.release(); const stats = { Norte: 0, Centro: 0, Sur: 0, Total: 0 }; result.rows.forEach(row => { const z = (row.zona || "").toUpperCase().trim(); if (z.includes("NORTE")) stats.Norte++; else if (z.includes("CENTRO")) stats.Centro++; else if (z.includes("SUR")) stats.Sur++; }); stats.Total = stats.Norte + stats.Centro + stats.Sur; res.json({ ok: true, stats }); } catch (error) { res.status(500).json({ ok: false, message: "Error" }); } };
-
 // ==========================================
-// 3. REPORTE WORD
+// 3. EXPEDIENTE COMPLETO (SÍSIFO PDF + ZIP) ✅ RESTAURADO FULL DISEÑO
 // ==========================================
+const descargarFolioParte = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const parteRes = await pool.query('SELECT * FROM partes_virtuales WHERE id = $1', [id]);
+        const archivosRes = await pool.query('SELECT * FROM parte_archivos WHERE parte_id = $1', [id]);
+
+        if (parteRes.rows.length === 0) return res.status(404).json({ message: 'Parte no encontrado' });
+
+        const parte = parteRes.rows[0];
+        const archivos = archivosRes.rows;
+
+        const zipName = `EXPEDIENTE_SISIFO_P${id}.zip`;
+        res.attachment(zipName);
+        
+        const archive = archiver('zip', { zlib: { level: 9 } });
+        archive.pipe(res);
+
+        // --- DISEÑO DEL PDF FORMATO SÍSIFO ---
+        const doc = new PDFDocument({ margin: 40, size: 'A4' });
+        archive.append(doc, { name: `REPORTE_OFICIAL_SISIFO_P${id}.pdf` });
+
+        // COLORES OFICIALES SISIFO
+        const azulOscuro = "#1e293b";
+
+        // --- 1. ENCABEZADO TÉCNICO ---
+        doc.rect(0, 0, 612, 80).fill(azulOscuro); // Franja superior
+        doc.fillColor('#ffffff').fontSize(20).text('SISTEMA DE INFORMACIÓN SÍSIFO', 50, 25, { characterSpacing: 1 });
+        doc.fontSize(10).text('REPORTE OPERATIVO DE INCIDENCIA DIGITAL', 50, 50, { characterSpacing: 2 });
+        doc.fillColor('#ffffff').fontSize(16).text(`ID: #${id}`, 480, 35, { align: 'right' });
+
+        doc.moveDown(4);
+        doc.fillColor('#000000');
+
+        // --- 2. BLOQUE: DATOS DE INTERVENCIÓN ---
+        const drawSectionHeader = (title, y) => {
+            doc.rect(40, y, 515, 18).fill(azulOscuro);
+            doc.fillColor('#ffffff').fontSize(9).text(title.toUpperCase(), 50, y + 5, { bold: true });
+            doc.fillColor('#000000');
+        };
+
+        drawSectionHeader("Información de la Intervención", 100);
+        
+        let currentY = 125;
+        const rowHeight = 18;
+
+        const drawRow = (label, value, y) => {
+            doc.fontSize(9).font('Helvetica-Bold').text(label, 50, y);
+            doc.font('Helvetica').text(value || '---', 180, y);
+            doc.moveTo(40, y + 12).lineTo(555, y + 12).strokeColor('#e2e8f0').stroke();
+        };
+
+        drawRow("CORRELATIVO FÍSICO:", parte.parte_fisico, currentY); currentY += rowHeight;
+        drawRow("FECHA REGISTRO:", parte.fecha, currentY); currentY += rowHeight;
+        drawRow("HORA INICIO/FIN:", `${parte.hora} - ${parte.hora_fin || '---'}`, currentY); currentY += rowHeight;
+        drawRow("ZONA / SECTOR:", `${parte.zona} / ${parte.sector}`, currentY); currentY += rowHeight;
+        drawRow("LUGAR EXACTO:", parte.lugar, currentY); currentY += rowHeight;
+        drawRow("SUMILLA:", (parte.sumilla || 'OTROS').toUpperCase(), currentY);
+
+        // --- 3. BLOQUE: RECURSOS Y UNIDAD ---
+        currentY += 30;
+        drawSectionHeader("Recursos y Unidad Intervencionista", currentY);
+        currentY += 25;
+
+        drawRow("TIPO DE UNIDAD:", parte.unidad_tipo, currentY); currentY += rowHeight;
+        drawRow("PLACA / INTERNO:", parte.placa, currentY); currentY += rowHeight;
+        drawRow("CONDUCTOR:", parte.conductor, currentY); currentY += rowHeight;
+        drawRow("DNI CONDUCTOR:", parte.dni_conductor, currentY);
+
+        // --- 4. BLOQUE: NARRATIVA ---
+        currentY += 40;
+        drawSectionHeader("Narrativa de los Hechos (Ocurrencia)", currentY);
+        currentY += 25;
+        
+        doc.rect(40, currentY, 515, 120).strokeColor('#cbd5e1').stroke();
+        doc.fontSize(10).font('Helvetica').text(parte.ocurrencia || "Sin descripción detallada.", 50, currentY + 10, {
+            width: 495, align: 'justify', lineGap: 3
+        });
+
+        // --- 5. FIRMAS (PIE DE PÁGINA) ---
+        const footerY = 700;
+        doc.moveTo(50, footerY).lineTo(180, footerY).stroke();
+        doc.moveTo(230, footerY).lineTo(360, footerY).stroke();
+        doc.moveTo(410, footerY).lineTo(540, footerY).stroke();
+
+        doc.fontSize(8).font('Helvetica-Bold');
+        doc.text("OPERADOR DE TURNO", 50, footerY + 5, { width: 130, align: 'center' });
+        doc.text("SUPERVISOR ZONAL", 230, footerY + 5, { width: 130, align: 'center' });
+        doc.text("JEFE DE OPERACIONES", 410, footerY + 5, { width: 130, align: 'center' });
+
+        doc.end();
+
+        // --- B. MULTIMEDIA ---
+        const folderPath = path.join(__dirname, '../../uploads/partes', id.toString());
+        archivos.forEach((file) => {
+            const rawName = file.ruta || file.archivo || file.nombre_archivo || file.url;
+            if (rawName) {
+                const fileName = path.basename(rawName);
+                const filePath = path.join(folderPath, fileName);
+                if (fs.existsSync(filePath)) {
+                    archive.file(filePath, { name: `MULTIMEDIA/${fileName}` });
+                }
+            }
+        });
+
+        // --- C. UBICACIÓN ---
+        if (parte.latitud && parte.longitud) {
+            const mapsContent = `[InternetShortcut]\nURL=http://googleusercontent.com/maps.google.com/?q=${parte.latitud},${parte.longitud}`;
+            archive.append(mapsContent, { name: `UBICACION_GPS.url` });
+        }
+
+        await archive.finalize();
+
+    } catch (error) {
+        console.error('Error:', error);
+        if (!res.headersSent) res.status(500).send('Error interno');
+    }
+};
+// ==========================================
+// 4. REPORTES WORD Y EXCEL RESTAURADOS ✅
+// ==========================================
+
 const descargarReporteConteo = async (req, res) => {
     const { fecha, turno } = req.query;
     try {
-        const client = await pool.connect();
         const palabraClave = (turno || "").toUpperCase().includes("NOCHE") ? "NOCHE" : "DIA";
-        const query = `SELECT zona, sumilla FROM partes_virtuales WHERE fecha::text = $1 AND UPPER(turno) LIKE $2`;
-        const result = await client.query(query, [fecha, `%${palabraClave}%`]);
-        client.release();
-
+        const result = await pool.query(`SELECT zona, sumilla FROM partes_virtuales WHERE fecha::text = $1 AND UPPER(turno) LIKE $2`, [fecha, `%${palabraClave}%`]);
         const registros = result.rows;
         const zonas = { "NORTE": [], "CENTRO": [], "SUR": [] };
         registros.forEach(r => {
@@ -180,125 +269,66 @@ const descargarReporteConteo = async (req, res) => {
             else if (z.includes("CENTRO")) zonas["CENTRO"].push(r.sumilla);
             else if (z.includes("SUR")) zonas["SUR"].push(r.sumilla);
         });
-
-        const totalGeneral = registros.length;
-
         const doc = new Document({
-            sections: [{
-                properties: {},
-                children: [
-                    ...crearPaginaZonaWord("ZONA NORTE", fecha, turno, zonas["NORTE"]),
-                    new Paragraph({ children: [new PageBreak()] }),
-                    ...crearPaginaZonaWord("ZONA CENTRO", fecha, turno, zonas["CENTRO"]),
-                    new Paragraph({ children: [new PageBreak()] }),
-                    ...crearPaginaZonaWord("ZONA SUR", fecha, turno, zonas["SUR"]),
-                    new Paragraph({ text: "", spacing: { before: 500 } }),
-                    new Paragraph({ text: "__________________________________________________", alignment: AlignmentType.CENTER }),
-                    new Paragraph({ children: [ new TextRun({ text: `CONTEO TOTAL DE LAS 3 ZONAS:  ${totalGeneral}`, bold: true, size: 28 }) ], alignment: AlignmentType.CENTER, spacing: { before: 200 } })
-                ],
-            }],
+            sections: [{ children: [ ...crearPaginaZonaWord("ZONA NORTE", fecha, turno, zonas["NORTE"]), new Paragraph({ children: [new PageBreak()] }), ...crearPaginaZonaWord("ZONA CENTRO", fecha, turno, zonas["CENTRO"]), new Paragraph({ children: [new PageBreak()] }), ...crearPaginaZonaWord("ZONA SUR", fecha, turno, zonas["SUR"]), new Paragraph({ children: [ new TextRun({ text: `TOTAL GENERAL: ${registros.length}`, bold: true, size: 28 }) ], alignment: AlignmentType.CENTER, spacing: { before: 500 } }) ] }]
         });
         const buffer = await Packer.toBuffer(doc);
-        res.setHeader("Content-Disposition", `attachment; filename=Conteo_Incidencias_${fecha}.docx`);
-        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        res.setHeader("Content-Disposition", `attachment; filename=Conteo_${fecha}.docx`);
         res.send(buffer);
-    } catch (error) { res.status(500).json({ ok: false, message: "Error al generar reporte" }); }
+    } catch (error) { res.status(500).json({ ok: false }); }
 };
 
 function crearPaginaZonaWord(nombreZona, fecha, turno, listaSumillas) {
     const conteo = {};
-    listaSumillas.forEach(s => { const nombre = (s || "OTROS NO ESPECIFICADOS").toUpperCase(); conteo[nombre] = (conteo[nombre] || 0) + 1; });
-    const totalZona = listaSumillas.length;
-    const bloque = [ new Paragraph({ children: [new TextRun({ text: nombreZona, bold: true, size: 32, color: "1E3A8A" })], alignment: AlignmentType.CENTER, spacing: { after: 100 } }), new Paragraph({ text: "CONTEO DE INCIDENCIAS", alignment: AlignmentType.CENTER, heading: "Heading2", spacing: { after: 400 } }) ];
-    if (totalZona === 0) { bloque.push(new Paragraph({ text: "Sin incidencias registradas en este turno.", alignment: AlignmentType.CENTER, italics: true })); } else { Object.entries(conteo).forEach(([incidencia, cantidad]) => { bloque.push(new Paragraph({ children: [ new TextRun({ text: `🚨 ${incidencia}`, size: 24 }), new TextRun({ text: `\t${cantidad}`, bold: true, size: 24 }) ], tabStops: [{ type: TabStopType.RIGHT, position: 9000 }], spacing: { after: 200 } })); }); }
-    bloque.push(new Paragraph({ text: "", spacing: { before: 200 } }), new Paragraph({ children: [ new TextRun({ text: "TOTAL ZONA", bold: true, size: 24 }), new TextRun({ text: `\t${totalZona}`, bold: true, size: 28 }) ], tabStops: [{ type: TabStopType.RIGHT, position: 9000 }], border: { top: { style: "single", size: 6, space: 10 } }, spacing: { before: 200 } }));
+    listaSumillas.forEach(s => { const n = (s || "OTROS").toUpperCase(); conteo[n] = (conteo[n] || 0) + 1; });
+    const bloque = [ new Paragraph({ children: [new TextRun({ text: nombreZona, bold: true, size: 32, color: "1E3A8A" })], alignment: AlignmentType.CENTER, spacing: { after: 400 } }) ];
+    Object.entries(conteo).forEach(([inc, cant]) => { bloque.push(new Paragraph({ children: [ new TextRun({ text: `🚨 ${inc}`, size: 24 }), new TextRun({ text: `\t${cant}`, bold: true, size: 24 }) ], tabStops: [{ type: TabStopType.RIGHT, position: 9000 }], spacing: { after: 200 } })); });
     return bloque;
 }
 
-// ==========================================
-// 4. REPORTE EXCEL (DISEÑO EXACTO SOLICITADO)
-// ==========================================
 const descargarReporteExcel = async (req, res) => {
-    // 1. Recibimos parámetros (incluyendo los nombres que vienen del botón frontend)
     const { fecha, turno, nombre_callcenter, nombre_operador } = req.query;
-
     try {
-        const client = await pool.connect();
         const palabraClave = (turno || "").toUpperCase().includes("NOCHE") ? "NOCHE" : "DIA";
-        
-        // 2. Consulta Base de Datos
-        const query = `SELECT zona, sumilla FROM partes_virtuales WHERE fecha::text = $1 AND UPPER(turno) LIKE $2`;
-        const result = await client.query(query, [fecha, `%${palabraClave}%`]);
-        client.release();
-
-        // 3. Lógica de Conteo (Usando Catálogo Fijo)
+        const result = await pool.query(`SELECT zona, sumilla FROM partes_virtuales WHERE fecha::text = $1 AND UPPER(turno) LIKE $2`, [fecha, `%${palabraClave}%`]);
         const registros = result.rows;
         const zonas = { "NORTE": {}, "CENTRO": {}, "SUR": {} };
-        // Inicializar todo en 0
         CATALOGO_INCIDENCIAS.forEach(inc => { zonas.NORTE[inc] = 0; zonas.CENTRO[inc] = 0; zonas.SUR[inc] = 0; });
-        let otrosNorte = 0, otrosCentro = 0, otrosSur = 0;
-
+        
         registros.forEach(r => {
             const z = (r.zona || "").toUpperCase();
             const inc = (r.sumilla || "OTROS NO ESPECIFICADOS").toUpperCase().trim();
-            const existe = CATALOGO_INCIDENCIAS.includes(inc);
-            const key = existe ? inc : "OTROS NO ESPECIFICADOS";
-            
-            if (z.includes("NORTE")) { existe ? zonas.NORTE[key]++ : otrosNorte++; }
-            else if (z.includes("CENTRO")) { existe ? zonas.CENTRO[key]++ : otrosCentro++; }
-            else if (z.includes("SUR")) { existe ? zonas.SUR[key]++ : otrosSur++; }
+            const key = CATALOGO_INCIDENCIAS.includes(inc) ? inc : "OTROS NO ESPECIFICADOS";
+            if (z.includes("NORTE")) zonas.NORTE[key]++;
+            else if (z.includes("CENTRO")) zonas.CENTRO[key]++;
+            else if (z.includes("SUR")) zonas.SUR[key]++;
         });
-        zonas.NORTE["OTROS NO ESPECIFICADOS"] += otrosNorte;
-        zonas.CENTRO["OTROS NO ESPECIFICADOS"] += otrosCentro;
-        zonas.SUR["OTROS NO ESPECIFICADOS"] += otrosSur;
 
-        // 4. Armado del Excel Visual
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet("CONTEO DIARIO");
-
-        // --- Configuración de Columnas y Anchos ---
         sheet.getColumn('A').width = 40; sheet.getColumn('B').width = 10;
-        sheet.getColumn('C').width = 3;  // Espacio
         sheet.getColumn('D').width = 40; sheet.getColumn('E').width = 10;
-        sheet.getColumn('F').width = 3;  // Espacio
         sheet.getColumn('G').width = 40; sheet.getColumn('H').width = 10;
-        sheet.getColumn('I').width = 3;  // Espacio
+        sheet.getColumn('J').width = 20; sheet.getColumn('K').width = 10; 
 
-        sheet.getColumn('J').width = 20; 
-        sheet.getColumn('K').width = 10; 
-        sheet.getColumn('L').width = 10; 
-        sheet.getColumn('M').width = 10; 
-        sheet.getColumn('N').width = 10; 
-
-        // Estilos Comunes
-        const headerStyle = { font: { bold: true, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }, alignment: { horizontal: 'center', vertical: 'middle' } };
+        const headerStyle = { font: { bold: true, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }, alignment: { horizontal: 'center' } };
         const borderStyle = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
-        const blackBoxStyle = { font: { bold: true, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } }, alignment: { horizontal: 'center', vertical: 'middle' } };
+        const blackBoxStyle = { font: { bold: true, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } }, alignment: { horizontal: 'center' } };
 
-        // --- ENCABEZADOS PRINCIPALES ---
         sheet.getCell('A2').value = "NORTE"; sheet.getCell('B2').value = "TOTAL";
         sheet.getCell('D2').value = "CENTRO"; sheet.getCell('E2').value = "TOTAL";
         sheet.getCell('G2').value = "SUR"; sheet.getCell('H2').value = "TOTAL";
-        
-        ['A2','B2','D2','E2','G2','H2'].forEach(c => {
-             sheet.getCell(c).style = headerStyle;
-             sheet.getCell(c).border = borderStyle;
-        });
+        ['A2','B2','D2','E2','G2','H2'].forEach(c => { sheet.getCell(c).style = headerStyle; sheet.getCell(c).border = borderStyle; });
 
-        // --- LLENADO DE DATOS ---
         let currentRow = 3;
         CATALOGO_INCIDENCIAS.forEach(inc => {
-            const nombre = `🚨${inc}`;
-            sheet.getCell(`A${currentRow}`).value = nombre; sheet.getCell(`B${currentRow}`).value = zonas.NORTE[inc];
-            sheet.getCell(`D${currentRow}`).value = nombre; sheet.getCell(`E${currentRow}`).value = zonas.CENTRO[inc];
-            sheet.getCell(`G${currentRow}`).value = nombre; sheet.getCell(`H${currentRow}`).value = zonas.SUR[inc];
-
+            sheet.getCell(`A${currentRow}`).value = `🚨${inc}`; sheet.getCell(`B${currentRow}`).value = zonas.NORTE[inc];
+            sheet.getCell(`D${currentRow}`).value = `🚨${inc}`; sheet.getCell(`E${currentRow}`).value = zonas.CENTRO[inc];
+            sheet.getCell(`G${currentRow}`).value = `🚨${inc}`; sheet.getCell(`H${currentRow}`).value = zonas.SUR[inc];
             ['A','B','D','E','G','H'].forEach(col => sheet.getCell(`${col}${currentRow}`).border = borderStyle);
-            ['B','E','H'].forEach(col => sheet.getCell(`${col}${currentRow}`).alignment = { horizontal: 'center' });
             currentRow++;
         });
 
-        // --- TOTALES POR ZONA ---
         const tNorte = Object.values(zonas.NORTE).reduce((a,b)=>a+b,0);
         const tCentro = Object.values(zonas.CENTRO).reduce((a,b)=>a+b,0);
         const tSur = Object.values(zonas.SUR).reduce((a,b)=>a+b,0);
@@ -306,114 +336,52 @@ const descargarReporteExcel = async (req, res) => {
         sheet.getCell(`A${currentRow}`).value = "TOTAL"; sheet.getCell(`B${currentRow}`).value = tNorte;
         sheet.getCell(`D${currentRow}`).value = "TOTAL"; sheet.getCell(`E${currentRow}`).value = tCentro;
         sheet.getCell(`G${currentRow}`).value = "TOTAL"; sheet.getCell(`H${currentRow}`).value = tSur;
-        
-        ['A','B','D','E','G','H'].forEach(col => {
-            sheet.getCell(`${col}${currentRow}`).font = { bold: true };
-            sheet.getCell(`${col}${currentRow}`).border = borderStyle;
-            sheet.getCell(`${col}${currentRow}`).alignment = { horizontal: 'center' };
-        });
+        ['A','B','D','E','G','H'].forEach(col => { sheet.getCell(`${col}${currentRow}`).font = { bold: true }; sheet.getCell(`${col}${currentRow}`).border = borderStyle; });
 
-        // ==========================================
-        // 🟦 WIDGETS LATERALES
-        // ==========================================
-
-        // 1. TOTAL GLOBAL
-        sheet.mergeCells('J4:N4');
-        sheet.getCell('J4').value = "TOTAL GLOBAL INCIDENCIAS";
-        sheet.getCell('J4').font = { bold: true };
-        sheet.getCell('J4').alignment = { horizontal: 'center' };
-
-        sheet.mergeCells('J5:N5');
-        sheet.getCell('J5').value = tNorte + tCentro + tSur; // Suma Total
-        sheet.getCell('J5').font = { bold: true, size: 20, color: { argb: 'FFFF0000' } }; // Rojo Grande
-        sheet.getCell('J5').alignment = { horizontal: 'center', vertical: 'middle' };
+        // Widgets
+        sheet.mergeCells('J4:N4'); sheet.getCell('J4').value = "TOTAL GLOBAL";
+        sheet.mergeCells('J5:N5'); sheet.getCell('J5').value = tNorte + tCentro + tSur;
+        sheet.getCell('J5').font = { bold: true, size: 20, color: { argb: 'FFFF0000' } };
         sheet.getCell('J5').border = borderStyle;
 
-        // 2. ROPER BASE CENTRAL
-        sheet.mergeCells('J8:N8');
-        sheet.getCell('J8').value = "ROPER BASE CENTRAL";
+        sheet.mergeCells('J8:N8'); sheet.getCell('J8').value = "ROPER BASE CENTRAL";
         sheet.getCell('J8').style = blackBoxStyle;
-
         sheet.getCell('J9').value = "NOMBRE:";
-        sheet.mergeCells('K9:N9');
-        sheet.getCell('K9').value = (nombre_operador || "").toUpperCase(); 
-        sheet.getCell('K9').font = { bold: true, color: { argb: 'FF0000FF' } }; // Azul
-        sheet.getCell('K9').alignment = { horizontal: 'center' };
-        
+        sheet.mergeCells('K9:N9'); sheet.getCell('K9').value = (nombre_operador || "").toUpperCase();
+        sheet.getCell('K9').font = { bold: true, color: { argb: 'FF0000FF' } };
         sheet.getCell('J10').value = "CONTEO:";
-        sheet.mergeCells('K10:N10');
-        sheet.getCell('K10').border = { bottom: { style: 'thin' } }; 
+        sheet.mergeCells('K10:N10'); sheet.getCell('K10').border = { bottom: { style: 'thin' } }; // ✅
 
-        // 3. CALL CENTER
-        sheet.mergeCells('J13:N13');
-        sheet.getCell('J13').value = "CALL CENTER";
+        sheet.mergeCells('J13:N13'); sheet.getCell('J13').value = "CALL CENTER";
         sheet.getCell('J13').style = blackBoxStyle;
-
         sheet.getCell('J14').value = "NOMBRE:";
-        sheet.mergeCells('K14:N14');
-        sheet.getCell('K14').value = (nombre_callcenter || "").toUpperCase(); 
+        sheet.mergeCells('K14:N14'); sheet.getCell('K14').value = (nombre_callcenter || "").toUpperCase();
         sheet.getCell('K14').font = { bold: true, color: { argb: 'FF0000FF' } };
-        sheet.getCell('K14').alignment = { horizontal: 'center' };
-
         sheet.getCell('J15').value = "CONTEO:";
-        sheet.mergeCells('K15:N15');
-        sheet.getCell('K15').border = { bottom: { style: 'thin' } };
-
-        // 4. TABLA OPERADORES
-        sheet.getCell('J18').value = "OPERADOR";
-        sheet.getCell('K18').value = "NORTE";
-        sheet.getCell('L18').value = "CENTRO";
-        sheet.getCell('M18').value = "SUR";
-        sheet.getCell('N18').value = "TOTAL";
-
-        ['J18','K18','L18','M18','N18'].forEach(c => sheet.getCell(c).style = blackBoxStyle);
-
-        for(let r=19; r<=24; r++) {
-            ['J','K','L','M','N'].forEach(col => sheet.getCell(`${col}${r}`).border = borderStyle);
-        }
-
-        sheet.getCell('J25').value = "TOTAL";
-        ['J25','K25','L25','M25','N25'].forEach(c => {
-             sheet.getCell(c).font = { bold: true };
-             sheet.getCell(c).border = borderStyle;
-             sheet.getCell(c).alignment = { horizontal: 'center' };
-             if(c !== 'J25') sheet.getCell(c).value = 0;
-        });
+        sheet.mergeCells('K15:N15'); sheet.getCell('K15').border = { bottom: { style: 'thin' } }; // ✅
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader("Content-Disposition", `attachment; filename=Conteo_Diario_${fecha}.xlsx`);
+        res.setHeader("Content-Disposition", `attachment; filename=Conteo_${fecha}.xlsx`);
         await workbook.xlsx.write(res);
         res.end();
-
-    } catch (error) {
-        console.error("❌ Error Excel:", error);
-        res.status(500).json({ ok: false, message: "Error al generar Excel" });
-    }
+    } catch (error) { res.status(500).json({ ok: false }); }
 };
+
+// ==========================================
+// 5. ESTADÍSTICAS Y FECHAS
+// ==========================================
+
+const obtenerEstadisticasCallCenter = async (req, res) => { const { fecha } = req.query; try { const result = await pool.query(`SELECT zona FROM partes_virtuales WHERE fecha::text LIKE $1 || '%'`, [fecha]); const stats = { Norte: 0, Centro: 0, Sur: 0, Total: 0 }; result.rows.forEach(row => { const z = (row.zona || "").toUpperCase().trim(); if (z === 'NORTE') stats.Norte++; else if (z === 'CENTRO') stats.Centro++; else if (z === 'SUR') stats.Sur++; }); stats.Total = stats.Norte + stats.Centro + stats.Sur; res.json(stats); } catch (error) { res.status(500).json({ ok: false }); } };
+
+const obtenerMetricasZonales = async (req, res) => { try { const result = await pool.query("SELECT zona FROM partes_virtuales"); const stats = { Norte: 0, Centro: 0, Sur: 0, Total: 0 }; result.rows.forEach(row => { const z = (row.zona || "").toUpperCase(); if (z.includes("NORTE")) stats.Norte++; else if (z.includes("CENTRO")) stats.Centro++; else if (z.includes("SUR")) stats.Sur++; }); stats.Total = stats.Norte + stats.Centro + stats.Sur; res.json({ ok: true, stats }); } catch (error) { res.status(500).json({ ok: false }); } };
 
 const obtenerFechasActivas = async (req, res) => {
   try {
-    const client = await pool.connect();
-    const result = await client.query("SELECT DISTINCT to_char(fecha::date, 'YYYY-MM-DD') as fecha FROM partes_virtuales WHERE fecha IS NOT NULL AND fecha <> ''");
-    client.release();
-    
-    const fechas = result.rows.map(r => r.fecha);
-    res.json({ ok: true, fechas });
-  } catch (error) {
-    console.error("Error obteniendo fechas activas:", error);
-    res.status(500).json({ ok: false, fechas: [] });
-  }
+    const result = await pool.query("SELECT DISTINCT to_char(fecha::date, 'YYYY-MM-DD') as fecha FROM partes_virtuales WHERE fecha IS NOT NULL AND fecha <> ''");
+    res.json({ ok: true, fechas: result.rows.map(r => r.fecha) });
+  } catch (error) { res.status(500).json({ ok: false, fechas: [] }); }
 };
 
 module.exports = {
-  crearParte,
-  listarPartes,
-  obtenerParte,
-  actualizarParte,
-  cerrarParte,
-  obtenerEstadisticasCallCenter,
-  obtenerMetricasZonales,
-  descargarReporteConteo,
-  descargarReporteExcel,
-  obtenerFechasActivas
+  crearParte, listarPartes, obtenerParte, actualizarParte, cerrarParte, descargarFolioParte, obtenerEstadisticasCallCenter, obtenerMetricasZonales, descargarReporteConteo, descargarReporteExcel, obtenerFechasActivas
 };

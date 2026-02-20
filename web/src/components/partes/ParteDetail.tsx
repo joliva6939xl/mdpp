@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import type { ParteVirtual } from "../../types/partes";
 import { getIncidenciaMostrada, getOrigenMostrado } from "../../utils/parteView";
 import { profileStyles as styles } from "../../pages/Profile.styles";
@@ -8,12 +8,73 @@ type Props = {
 };
 
 const ParteDetail: React.FC<Props> = ({ parte }) => {
+  const [descargando, setDescargando] = useState(false);
   const fechaMostrada = parte.fecha || parte.creado_en || "-";
   const incidenciaMostrada = getIncidenciaMostrada(parte);
   const origenMostrado = getOrigenMostrado(parte);
 
+  const handleDescargarFolio = async () => {
+    try {
+      setDescargando(true);
+      const token = localStorage.getItem("token"); // O como guardes tu token
+      
+      const response = await fetch(`http://localhost:4000/api/partes/${parte.id}/descargar-folio`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Error al generar el expediente');
+      }
+
+      // Proceso de descarga del BLOB (el archivo ZIP)
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Expediente_Parte_${parte.id}.zip`);
+      document.body.appendChild(link);
+      link.click();
+      
+      // Limpieza
+      link.parentNode?.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error:", error);
+      alert("No se pudo descargar el expediente. Revisa la conexión con el servidor.");
+    } finally {
+      setDescargando(false);
+    }
+  };
+
   return (
     <div>
+      {/* BOTÓN DE DESCARGA ROJO */}
+      <div style={{ marginBottom: '20px' }}>
+        <button 
+          onClick={handleDescargarFolio}
+          disabled={descargando}
+          style={{
+            backgroundColor: '#d32f2f',
+            color: 'white',
+            padding: '10px 20px',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: descargando ? 'not-allowed' : 'pointer',
+            fontWeight: 'bold',
+            width: '100%',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '10px'
+          }}
+        >
+          {descargando ? "GENERANDO ZIP..." : "📥 DESCARGAR EXPEDIENTE (ZIP)"}
+        </button>
+      </div>
+
       <div style={styles.detailsRow}>
         <span style={styles.detailsLabel}>ID Parte:</span>
         <span>{parte.id}</span>
